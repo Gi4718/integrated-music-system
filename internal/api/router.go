@@ -112,6 +112,18 @@ func SetupRouter(cfg *config.Config) *gin.Engine {
 			auth.GET("/qq/url", getQQAuthURL)
 		}
 
+		// 设置路由（无需 JWT 中间件，使用数据库 cookie 认证）
+		settings := api.Group("/settings")
+		{
+			settings.GET("", getSettings)
+			settings.POST("", updateSettings)
+			settings.POST("/ssl/upload", uploadSSLCert)
+			settings.POST("/ssl/upload-file", uploadSSLCertFile)
+			settings.POST("/ssl/validate", validateSSLCert)
+			settings.POST("/ssl/acme", applyACME)
+			settings.GET("/ssl/acme-plugins", getACMEPlugins)
+		}
+
 		// 需要 JWT 认证的路由组
 		authorized := api.Group("")
 		authorized.Use(AuthMiddleware())
@@ -148,17 +160,6 @@ func SetupRouter(cfg *config.Config) *gin.Engine {
 			{
 				player.GET("/check/:id", checkSongURL)
 				player.GET("/stream/:id", streamAudio)
-			}
-
-			settings := authorized.Group("/settings")
-			{
-				settings.GET("", getSettings)
-				settings.POST("", updateSettings)
-				settings.POST("/ssl/upload", uploadSSLCert)
-				settings.POST("/ssl/upload-file", uploadSSLCertFile)
-				settings.POST("/ssl/validate", validateSSLCert)
-				settings.POST("/ssl/acme", applyACME)
-				settings.GET("/ssl/acme-plugins", getACMEPlugins)
 			}
 
 			tasks := authorized.Group("/tasks")
