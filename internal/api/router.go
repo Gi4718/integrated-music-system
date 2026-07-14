@@ -94,27 +94,28 @@ func SetupRouter(cfg *config.Config) *gin.Engine {
 		api.POST("/system/login", SystemLogin)
 		api.GET("/system/check", CheckSystemUser)
 
-		// 需要认证的路由组
+		// 网易云认证路由（无需 JWT 中间件，使用数据库 cookie 认证）
+		auth := api.Group("/auth")
+		{
+			auth.GET("/qr-key", getQRKey)
+			auth.GET("/qr-code", getQRCode)
+			auth.GET("/qr-check", checkQRStatus)
+			auth.GET("/status", getLoginStatus)
+			auth.POST("/logout", logout)
+			auth.POST("/sms/send", sendSMSCode)
+			auth.POST("/phone", loginByPhone)
+			auth.POST("/phone/password", loginByPhonePassword)
+			auth.POST("/email", loginByEmail)
+			auth.POST("/save-cookie", saveCookie)
+			auth.POST("/second-verify", secondVerify)
+			auth.POST("/qq", loginByQQ)
+			auth.GET("/qq/url", getQQAuthURL)
+		}
+
+		// 需要 JWT 认证的路由组
 		authorized := api.Group("")
 		authorized.Use(AuthMiddleware())
 		{
-			auth := authorized.Group("/auth")
-			{
-				auth.GET("/qr-key", getQRKey)
-				auth.GET("/qr-code", getQRCode)
-				auth.GET("/qr-check", checkQRStatus)
-				auth.GET("/status", getLoginStatus)
-				auth.POST("/logout", logout)
-				auth.POST("/sms/send", sendSMSCode)
-				auth.POST("/phone", loginByPhone)
-				auth.POST("/phone/password", loginByPhonePassword)
-				auth.POST("/email", loginByEmail)
-				auth.POST("/save-cookie", saveCookie)
-				auth.POST("/second-verify", secondVerify)
-				auth.POST("/qq", loginByQQ)
-				auth.GET("/qq/url", getQQAuthURL)
-			}
-
 			// 推荐接口
 			recommend := authorized.Group("/recommend")
 			{

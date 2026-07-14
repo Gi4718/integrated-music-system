@@ -16,16 +16,25 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isLoggedIn = computed(() => user.value !== null)
 
+  // 网易云 vipType 数字映射
+  const vipTypeMap: Record<number, string> = {
+    0: '',
+    110: '黑胶VIP',
+    100: '音乐包',
+    120: '黑胶VIP',
+  }
+
   const checkLoginStatus = async () => {
     try {
       const res = await authAPI.getLoginStatus()
       if (res.data.logged_in && res.data.user) {
+        const vipNum = res.data.vipType || res.data.user.vipType || 0
         user.value = {
-          userId: res.data.user.userId,
+          userId: res.data.user.user_id,
           nickname: res.data.user.nickname,
-          avatar: res.data.user.avatarUrl,
-          vipType: res.data.user.vipType || '',
-          cookieValid: res.data.user.cookieValid !== false
+          avatar: res.data.user.avatar,
+          vipType: vipTypeMap[vipNum] || '',
+          cookieValid: res.data.cookie_valid !== false
         }
       } else {
         user.value = null
