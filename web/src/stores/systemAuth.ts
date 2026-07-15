@@ -10,23 +10,6 @@ export const useSystemAuthStore = defineStore('systemAuth', () => {
   const isSystemLoggedIn = computed(() => !!token.value)
   const isAdmin = computed(() => !role.value || role.value === 'admin')
 
-  // 从后端获取当前用户信息（同步数据库中的真实角色）
-  const fetchCurrentUser = async () => {
-    if (!token.value) return
-    try {
-      const res = await fetch('/api/system/me', {
-        headers: { 'Authorization': `Bearer ${token.value}` }
-      })
-      if (res.ok) {
-        const data = await res.json()
-        role.value = data.role || 'user'
-        localStorage.setItem('system_role', role.value || 'user')
-      }
-    } catch (e) {
-      console.error('获取当前用户信息失败', e)
-    }
-  }
-
   const login = async (usernameInput: string, password: string) => {
     const res = await systemAPI.login({
       username: usernameInput,
@@ -70,7 +53,6 @@ export const useSystemAuthStore = defineStore('systemAuth', () => {
     isAdmin,
     login,
     logout,
-    checkSystemUser,
-    fetchCurrentUser
+    checkSystemUser
   }
 })

@@ -297,6 +297,10 @@ const handleSystemLogout = () => {
 const handleNeteaseLogout = async () => {
   try {
     await authAPI.logout()
+  } catch (error) {
+    console.error('退出登录API调用失败:', error)
+  } finally {
+    // 无论API是否成功，都要清空前端状态
     authStore.clearUser()
     ElMessage.success('已退出网易云登录')
     // 退出后自动生成二维码
@@ -309,8 +313,6 @@ const handleNeteaseLogout = async () => {
       await nextTick()
       await getQRCode()
     }
-  } catch (error) {
-    ElMessage.error('退出失败')
   }
 }
 
@@ -408,11 +410,8 @@ const handlePhonePasswordLogin = async () => {
     } else if (res.data.needSecondVerify) {
       const verifyCode = prompt('需要二次验证，请输入验证码：')
       if (verifyCode) {
-        const verifyRes = await authAPI.secondVerify(verifyCode)
+        const verifyRes = await authAPI.secondVerify(phonePasswordForm.value.phone, phonePasswordForm.value.password, verifyCode)
         if (verifyRes.data.code === 200) {
-          if (verifyRes.data.cookie) {
-            await authAPI.saveCookie(verifyRes.data.cookie)
-          }
           await authStore.checkLoginStatus()
           ElMessage.success('网易云登录成功')
         } else {

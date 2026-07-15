@@ -64,8 +64,8 @@ export const authAPI = {
   loginByPhonePassword(phone: string, password: string) {
     return api.post('/auth/phone/password', { phone, password })
   },
-  secondVerify(code: string) {
-    return api.post('/auth/second-verify', { code })
+  secondVerify(phone: string, captcha: string, code: string) {
+    return api.post('/auth/second-verify', { phone, captcha, code })
   },
   loginByEmail(email: string, password: string) {
     return api.post('/auth/email', { email, password })

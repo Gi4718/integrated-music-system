@@ -202,9 +202,20 @@ func getLoginStatus(c *gin.Context) {
 }
 
 func logout(c *gin.Context) {
-	if err := db.ClearCurrentUser(); err != nil {
+	// 仅标记 cookie 失效，不删除用户记录
+	user, err := db.GetCurrentUser()
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	if user != nil {
+		// 将 cookie 过期时间设置为过去，使 cookie 失效
+		user.CookieExpires = time.Now().Add(-1 * time.Hour)
+		if err := db.SaveUser(user); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "logout success"})
@@ -277,107 +288,115 @@ func extractCookie(result map[string]interface{}) string {
 }
 
 func loginByPhone(c *gin.Context) {
-	var req struct {
-		Phone   string `json:"phone" binding:"required"`
-		Captcha string `json:"captcha" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "手机号和验证码不能为空"})
-		return
-	}
+  var req struct {
+    Phone   string `json:"phone" binding:"required"`
+    Captcha string `json:"captcha" binding:"required"`
+  }
+  if err := c.ShouldBindJSON(&req); err != nil {
+    c.JSON(http.StatusBadRequest, gin.H{"error": "手机号和验证码不能为空"})
+    return
+  }
 
-	netease := service.NewNeteaseService("http://127.0.0.1:3000")
-	body, err := netease.LoginByPhone(req.Phone, req.Captcha)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
+  netease := service.NewNeteaseService("http://127.0.0.1:3000")
+  body, err := netease.LoginByPhone(req.Phone, req.Captcha)
+  if err != nil {
+    c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+    return
+  }
 
-	var result map[string]interface{}
-	json.Unmarshal(body, &result)
+  var result map[string]interface{}
+  json.Unmarshal(body, &result)
 
-	if code, ok := result["code"].(float64); ok && code == 200 {
-		profile, _ := result["profile"].(map[string]interface{})
-		userID, _ := profile["userId"].(float64)
-		nickname, _ := profile["nickname"].(string)
-		avatarURL, _ := profile["avatarUrl"].(string)
-		cookie := extractCookie(result)
+  if code, ok := result["code"].(float64); ok && code == 200 {
+    profile, _ := result["profile"].(map[string]interface{})
+    userID, _ := profile["userId"].(float64)
+    nickname, _ := profile["nickname"].(string)
+    avatarURL, _ := profile["avatarUrl"].(string)
+    cookie := extractCookie(result)
 
-		user := &model.User{
-			UserID:        int(userID),
-			Nickname:      nickname,
-			AvatarURL:     avatarURL,
-			Cookie:        cookie,
-			CookieExpires: time.Now().Add(30 * 24 * time.Hour),
-		}
-		db.SaveUser(user)
+    // 清理 cookie
+    cleanCookie := service.CleanCookie(cookie)
 
-		c.JSON(http.StatusOK, gin.H{
-			"code":    200,
-			"message": "登录成功",
-			"user": gin.H{
-				"user_id":  user.UserID,
-				"nickname": user.Nickname,
-				"avatar":   user.AvatarURL,
-			},
-		})
-	} else {
-		msg, _ := result["msg"].(string)
-		c.JSON(http.StatusOK, gin.H{"code": result["code"], "error": msg, "msg": msg})
-	}
+    user := &model.User{
+      UserID:        int(userID),
+      Nickname:      nickname,
+      AvatarURL:     avatarURL,
+      Cookie:        cleanCookie,
+      CookieExpires: time.Now().Add(30 * 24 * time.Hour),
+    }
+    db.SaveUser(user)
+
+    c.JSON(http.StatusOK, gin.H{
+      "code":    200,
+      "message": "登录成功",
+      "cookie":  cleanCookie,
+      "user": gin.H{
+        "user_id":  user.UserID,
+        "nickname": user.Nickname,
+        "avatar":   user.AvatarURL,
+      },
+    })
+  } else {
+    msg, _ := result["msg"].(string)
+    c.JSON(http.StatusOK, gin.H{"code": result["code"], "error": msg, "msg": msg})
+  }
 }
 
 func loginByPhonePassword(c *gin.Context) {
-	var req struct {
-		Phone    string `json:"phone" binding:"required"`
-		Password string `json:"password" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "手机号和密码不能为空"})
-		return
-	}
+  var req struct {
+    Phone    string `json:"phone" binding:"required"`
+    Password string `json:"password" binding:"required"`
+  }
+  if err := c.ShouldBindJSON(&req); err != nil {
+    c.JSON(http.StatusBadRequest, gin.H{"error": "手机号和密码不能为空"})
+    return
+  }
 
-	netease := service.NewNeteaseService("http://127.0.0.1:3000")
-	body, err := netease.LoginByPhonePassword(req.Phone, req.Password)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
+  netease := service.NewNeteaseService("http://127.0.0.1:3000")
+  body, err := netease.LoginByPhonePassword(req.Phone, req.Password)
+  if err != nil {
+    c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+    return
+  }
 
-	var result map[string]interface{}
-	json.Unmarshal(body, &result)
+  var result map[string]interface{}
+  json.Unmarshal(body, &result)
 
-	if code, ok := result["code"].(float64); ok && code == 200 {
-		profile, _ := result["profile"].(map[string]interface{})
-		userID, _ := profile["userId"].(float64)
-		nickname, _ := profile["nickname"].(string)
-		avatarURL, _ := profile["avatarUrl"].(string)
-		cookie := extractCookie(result)
+  if code, ok := result["code"].(float64); ok && code == 200 {
+    profile, _ := result["profile"].(map[string]interface{})
+    userID, _ := profile["userId"].(float64)
+    nickname, _ := profile["nickname"].(string)
+    avatarURL, _ := profile["avatarUrl"].(string)
+    cookie := extractCookie(result)
 
-		user := &model.User{
-			UserID:        int(userID),
-			Nickname:      nickname,
-			AvatarURL:     avatarURL,
-			Cookie:        cookie,
-			CookieExpires: time.Now().Add(30 * 24 * time.Hour),
-		}
-		db.SaveUser(user)
+    // 清理 cookie
+    cleanCookie := service.CleanCookie(cookie)
 
-		c.JSON(http.StatusOK, gin.H{
-			"code":    200,
-			"message": "登录成功",
-			"user": gin.H{
-				"user_id":  user.UserID,
-				"nickname": user.Nickname,
-				"avatar":   user.AvatarURL,
-			},
-		})
-	} else if code, ok := result["code"].(float64); ok && code == 301 {
-		c.JSON(http.StatusOK, gin.H{"code": 301, "needSecondVerify": true, "message": "需要二次验证"})
-	} else {
-		msg, _ := result["msg"].(string)
-		c.JSON(http.StatusOK, gin.H{"code": result["code"], "error": msg, "msg": msg})
-	}
+    user := &model.User{
+      UserID:        int(userID),
+      Nickname:      nickname,
+      AvatarURL:     avatarURL,
+      Cookie:        cleanCookie,
+      CookieExpires: time.Now().Add(30 * 24 * time.Hour),
+    }
+    db.SaveUser(user)
+
+    c.JSON(http.StatusOK, gin.H{
+      "code":    200,
+      "message": "登录成功",
+      "cookie":  cleanCookie,
+      "user": gin.H{
+        "user_id":  user.UserID,
+        "nickname": user.Nickname,
+        "avatar":   user.AvatarURL,
+      },
+    })
+  } else if code, ok := result["code"].(float64); ok && code == 301 {
+    c.JSON(http.StatusOK, gin.H{"code": 301, "needSecondVerify": true, "message": "需要二次验证"})
+  } else {
+    msg, _ := result["msg"].(string)
+    c.JSON(http.StatusOK, gin.H{"code": result["code"], "error": msg, "msg": msg})
+  }
 }
 
 func saveCookie(c *gin.Context) {
@@ -443,68 +462,114 @@ func saveCookie(c *gin.Context) {
 }
 
 func secondVerify(c *gin.Context) {
-	var req struct {
-		Code string `json:"code" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "验证码不能为空"})
-		return
-	}
+  var req struct {
+    Phone   string `json:"phone" binding:"required"`
+    Captcha string `json:"captcha" binding:"required"`
+    Code    string `json:"code" binding:"required"`
+  }
+  if err := c.ShouldBindJSON(&req); err != nil {
+    c.JSON(http.StatusBadRequest, gin.H{"error": "参数不完整"})
+    return
+  }
 
-	// 这里实现二次验证逻辑
-	// 实际实现需要根据网易云 API 的二次验证流程来处理
-	c.JSON(http.StatusOK, gin.H{"message": "二次验证成功"})
+  netease := service.NewNeteaseService("http://127.0.0.1:3000")
+  body, err := netease.LoginByPhoneWith2FA(req.Phone, req.Captcha, req.Code)
+  if err != nil {
+    c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+    return
+  }
+
+  var result map[string]interface{}
+  json.Unmarshal(body, &result)
+
+  if code, ok := result["code"].(float64); ok && code == 200 {
+    profile, _ := result["profile"].(map[string]interface{})
+    userID, _ := profile["userId"].(float64)
+    nickname, _ := profile["nickname"].(string)
+    avatarURL, _ := profile["avatarUrl"].(string)
+    cookie := extractCookie(result)
+
+    // 清理 cookie
+    cleanCookie := service.CleanCookie(cookie)
+
+    user := &model.User{
+      UserID:        int(userID),
+      Nickname:      nickname,
+      AvatarURL:     avatarURL,
+      Cookie:        cleanCookie,
+      CookieExpires: time.Now().Add(30 * 24 * time.Hour),
+    }
+    db.SaveUser(user)
+
+    c.JSON(http.StatusOK, gin.H{
+      "code":    200,
+      "message": "登录成功",
+      "cookie":  cleanCookie,
+      "user": gin.H{
+        "user_id":  user.UserID,
+        "nickname": user.Nickname,
+        "avatar":   user.AvatarURL,
+      },
+    })
+  } else {
+    msg, _ := result["msg"].(string)
+    c.JSON(http.StatusOK, gin.H{"code": result["code"], "error": msg, "msg": msg})
+  }
 }
 
 func loginByEmail(c *gin.Context) {
-	var req struct {
-		Email    string `json:"email" binding:"required"`
-		Password string `json:"password" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "邮箱和密码不能为空"})
-		return
-	}
+  var req struct {
+    Email    string `json:"email" binding:"required"`
+    Password string `json:"password" binding:"required"`
+  }
+  if err := c.ShouldBindJSON(&req); err != nil {
+    c.JSON(http.StatusBadRequest, gin.H{"error": "邮箱和密码不能为空"})
+    return
+  }
 
-	netease := service.NewNeteaseService("http://127.0.0.1:3000")
-	body, err := netease.LoginByEmail(req.Email, req.Password)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
+  netease := service.NewNeteaseService("http://127.0.0.1:3000")
+  body, err := netease.LoginByEmail(req.Email, req.Password)
+  if err != nil {
+    c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+    return
+  }
 
-	var result map[string]interface{}
-	json.Unmarshal(body, &result)
+  var result map[string]interface{}
+  json.Unmarshal(body, &result)
 
-	if code, ok := result["code"].(float64); ok && code == 200 {
-		profile, _ := result["profile"].(map[string]interface{})
-		userID, _ := profile["userId"].(float64)
-		nickname, _ := profile["nickname"].(string)
-		avatarURL, _ := profile["avatarUrl"].(string)
-		cookie := extractCookie(result)
+  if code, ok := result["code"].(float64); ok && code == 200 {
+    profile, _ := result["profile"].(map[string]interface{})
+    userID, _ := profile["userId"].(float64)
+    nickname, _ := profile["nickname"].(string)
+    avatarURL, _ := profile["avatarUrl"].(string)
+    cookie := extractCookie(result)
 
-		user := &model.User{
-			UserID:        int(userID),
-			Nickname:      nickname,
-			AvatarURL:     avatarURL,
-			Cookie:        cookie,
-			CookieExpires: time.Now().Add(30 * 24 * time.Hour),
-		}
-		db.SaveUser(user)
+    // 清理 cookie
+    cleanCookie := service.CleanCookie(cookie)
 
-		c.JSON(http.StatusOK, gin.H{
-			"code":    200,
-			"message": "登录成功",
-			"user": gin.H{
-				"user_id":  user.UserID,
-				"nickname": user.Nickname,
-				"avatar":   user.AvatarURL,
-			},
-		})
-	} else {
-		msg, _ := result["msg"].(string)
-		c.JSON(http.StatusOK, gin.H{"code": result["code"], "error": msg, "msg": msg})
-	}
+    user := &model.User{
+      UserID:        int(userID),
+      Nickname:      nickname,
+      AvatarURL:     avatarURL,
+      Cookie:        cleanCookie,
+      CookieExpires: time.Now().Add(30 * 24 * time.Hour),
+    }
+    db.SaveUser(user)
+
+    c.JSON(http.StatusOK, gin.H{
+      "code":    200,
+      "message": "登录成功",
+      "cookie":  cleanCookie,
+      "user": gin.H{
+        "user_id":  user.UserID,
+        "nickname": user.Nickname,
+        "avatar":   user.AvatarURL,
+      },
+    })
+  } else {
+    msg, _ := result["msg"].(string)
+    c.JSON(http.StatusOK, gin.H{"code": result["code"], "error": msg, "msg": msg})
+  }
 }
 
 func loginByQQ(c *gin.Context) {
