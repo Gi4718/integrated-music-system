@@ -97,9 +97,11 @@ func initTables() error {
 
 		// 设置表
 		`CREATE TABLE IF NOT EXISTS settings (
-			key TEXT PRIMARY KEY,
+			key TEXT NOT NULL,
 			value TEXT,
-			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			user_id INTEGER DEFAULT 0,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY(key, user_id)
 		)`,
 
 		// 系统用户表（访问控制）
@@ -158,7 +160,7 @@ func initTables() error {
 		}
 	}
 
-	// 迁移：为已有 downloads 表添加新字段
+	// 迁移：为已有表添加新字段
 	migrations := []string{
 		`ALTER TABLE downloads ADD COLUMN download_url TEXT DEFAULT ''`,
 		`ALTER TABLE downloads ADD COLUMN total_size INTEGER DEFAULT 0`,
@@ -170,11 +172,35 @@ func initTables() error {
 		`ALTER TABLE downloads ADD COLUMN lyrics_downloaded BOOLEAN DEFAULT 0`,
 		`ALTER TABLE downloads ADD COLUMN artist_completed BOOLEAN DEFAULT 0`,
 		`ALTER TABLE downloads ADD COLUMN id3_embedded BOOLEAN DEFAULT 0`,
-
+		// 为 users 表添加 system_user_id 字段
+		`ALTER TABLE users ADD COLUMN system_user_id INTEGER DEFAULT 0`,
 	}
 
+	// 执行迁移
 	for _, m := range migrations {
 		dbConn.Exec(m) // 忽略错误（字段已存在时会报错，这是预期的）
+	}
+
+	// 特殊迁移：settings 表需要重建以支持 user_id
+	// 检查是否需要迁移 settings 表
+	var hasUserID bool
+	err := dbConn.QueryRow("SELECT COUNT(*) FROM pragma_table_info('settings') WHERE name='user_id'").Scan(&hasUserID)
+	if err == nil && !hasUserID {
+		// 备份旧数据
+		dbConn.Exec(`CREATE TABLE IF NOT EXISTS settings_backup AS SELECT * FROM settings`)
+		// 删除旧表
+		dbConn.Exec(`DROP TABLE settings`)
+		// 创建新表
+		dbConn.Exec(`CREATE TABLE settings (
+			key TEXT NOT NULL,
+			value TEXT,
+			user_id INTEGER DEFAULT 0,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY(key, user_id)
+		)`)
+		// 恢复数据（user_id 默认为 0）
+		dbConn.Exec(`INSERT INTO settings (key, value, user_id, updated_at) SELECT key, value, 0, updated_at FROM settings_backup`)
+		dbConn.Exec(`DROP TABLE settings_backup`)
 	}
 
 	// 创建索引（在迁移之后，确保所有字段都存在）
