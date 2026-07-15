@@ -156,6 +156,9 @@ export const settingsAPI = {
   },
   getACMEPlugins() {
     return api.get('/settings/ssl/acme-plugins')
+  },
+  reloadSSL() {
+    return api.post('/settings/ssl/reload')
   }
 }
 
