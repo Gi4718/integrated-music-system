@@ -134,6 +134,7 @@ func SetupRouter(cfg *config.Config) *gin.Engine {
 			settings.POST("/ssl/validate", validateSSLCert)
 			settings.POST("/ssl/acme", applyACME)
 			settings.GET("/ssl/acme-plugins", getACMEPlugins)
+			settings.POST("/ssl/reload", reloadSSL)
 		}
 
 		// 需要 JWT 认证的路由组

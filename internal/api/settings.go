@@ -307,16 +307,40 @@ func applyACME(c *gin.Context) {
 	db.SetSetting("ssl_cert_path", certPath)
 	db.SetSetting("ssl_key_path", keyPath)
 
+	// 同步触发热加载（确保在返回前完成）
+	sslReloadSuccess := false
+	if ReloadSSLFunc != nil {
+		sslReloadSuccess = ReloadSSLFunc()
+		if sslReloadSuccess {
+			log.Println("ACME 证书申请成功，HTTPS 服务已启动")
+		} else {
+			log.Println("ACME 证书申请成功，但 HTTPS 热加载失败")
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"message":   "证书申请成功",
-		"cert_path": certPath,
-		"key_path":  keyPath,
+		"message":             "证书申请成功",
+		"cert_path":           certPath,
+		"key_path":            keyPath,
+		"ssl_reload_success":  sslReloadSuccess,
 	})
 }
 
 func getACMEPlugins(c *gin.Context) {
 	plugins := service.GetPlugins()
 	c.JSON(http.StatusOK, gin.H{"plugins": plugins})
+}
+
+func reloadSSL(c *gin.Context) {
+	if ReloadSSLFunc == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "SSL 热加载未初始化"})
+		return
+	}
+	if ReloadSSLFunc() {
+		c.JSON(http.StatusOK, gin.H{"message": "SSL 证书热加载成功"})
+	} else {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "SSL 证书热加载失败，请检查证书配置"})
+	}
 }
 
 func getSetting(key, defaultValue string) string {

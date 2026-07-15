@@ -682,10 +682,23 @@ const loadSettings = async () => {
       settings.value.acmeProvider = s.acme_provider || ''
       settings.value.acmeEmail = s.acme_email || ''
       settings.value.acmeDomain = s.acme_domain || ''
+      // 同步已保存的插件选择到 UI
+      if (s.acme_provider) {
+        selectedPluginId.value = s.acme_provider
+      }
       if (s.acme_fields) {
         settings.value.acmeFields = typeof s.acme_fields === 'string'
           ? JSON.parse(s.acme_fields)
           : s.acme_fields
+        // 同步已保存的字段值到 UI
+        if (typeof s.acme_fields === 'string') {
+          try {
+            const parsed = JSON.parse(s.acme_fields)
+            pluginFieldValues.value = { ...parsed }
+          } catch {}
+        } else {
+          pluginFieldValues.value = { ...(s.acme_fields as Record<string, string>) }
+        }
       }
       settings.value.lastSyncTime = s.last_sync_time || ''
       settings.value.nextSyncTime = s.next_sync_time || ''
@@ -841,26 +854,20 @@ const applyACME = async () => {
       domain: settings.value.acmeDomain,
       fields: pluginFieldValues.value
     })
-    acmeMessage.value = res.data.message || '证书申请成功'
-    acmeSuccess.value = true
-    settings.value.sslCertPath = res.data.cert_path || ''
-    settings.value.sslKeyPath = res.data.key_path || ''
 
-    await validateSSLCert()
+    // 后端已经保存了 ssl_mode=acme、ssl_cert_path、ssl_key_path，并触发了热加载
+    const sslReloadOk = res.data?.ssl_reload_success === true
 
-    if (certValid.value) {
-      await saveSSLSettings()
-
-      try {
-        await settingsAPI.reloadSSL()
-        ElMessage.success('证书申请成功，HTTPS服务已启用')
-      } catch {
-        ElMessage.success('证书申请成功，HTTPS服务将在重启后生效')
-      }
+    if (sslReloadOk) {
+      acmeMessage.value = res.data.message || '证书申请成功，HTTPS服务已启用'
+      acmeSuccess.value = true
     } else {
+      acmeMessage.value = (res.data.message || '证书申请成功') + '，但 HTTPS 热加载失败，请检查日志'
       acmeSuccess.value = false
-      acmeMessage.value = '证书申请成功但验证失败'
     }
+
+    // 重新加载设置，确保 UI 显示正确的 ssl_mode 和证书路径
+    await loadSettings()
   } catch (e: any) {
     acmeMessage.value = e?.response?.data?.error || '证书申请失败'
     acmeSuccess.value = false
