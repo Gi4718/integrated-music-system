@@ -402,9 +402,7 @@ const handlePhonePasswordLogin = async () => {
   try {
     const res = await authAPI.loginByPhonePassword(phonePasswordForm.value.phone, phonePasswordForm.value.password)
     if (res.data.code === 200) {
-      if (res.data.cookie) {
-        await authAPI.saveCookie(res.data.cookie)
-      }
+      // 后端已经保存了 cookie 和用户信息，无需再次调用 saveCookie
       await authStore.checkLoginStatus()
       ElMessage.success('网易云登录成功')
     } else if (res.data.needSecondVerify) {
@@ -461,9 +459,7 @@ const handlePhoneSMSLogin = async () => {
   try {
     const res = await authAPI.loginByPhone(phoneSMSForm.value.phone, phoneSMSForm.value.captcha)
     if (res.data.code === 200) {
-      if (res.data.cookie) {
-        await authAPI.saveCookie(res.data.cookie)
-      }
+      // 后端已经保存了 cookie 和用户信息，无需再次调用 saveCookie
       await authStore.checkLoginStatus()
       ElMessage.success('网易云登录成功')
     } else {
@@ -484,9 +480,7 @@ const handleEmailLogin = async () => {
   try {
     const res = await authAPI.loginByEmail(emailForm.value.email, emailForm.value.password)
     if (res.data.code === 200) {
-      if (res.data.cookie) {
-        await authAPI.saveCookie(res.data.cookie)
-      }
+      // 后端已经保存了 cookie 和用户信息，无需再次调用 saveCookie
       await authStore.checkLoginStatus()
       ElMessage.success('网易云登录成功')
     } else {

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -19,8 +20,11 @@ import (
 )
 
 var (
-	cfgFile string
-	port    int
+	cfgFile     string
+	port        int
+	httpsServer *http.Server
+	httpsPort   int
+	mu          sync.Mutex
 )
 
 var rootCmd = &cobra.Command{
@@ -54,6 +58,61 @@ func loadTLSCert(certPath, keyPath, chainPath string) (tls.Certificate, error) {
 	return tls.LoadX509KeyPair(certFile, keyPath)
 }
 
+// ReloadSSL 热加载 SSL 证书
+func ReloadSSL() bool {
+	mu.Lock()
+	defer mu.Unlock()
+
+	sslMode, _ := db.GetSetting("ssl_mode")
+	sslCertPath, _ := db.GetSetting("ssl_cert_path")
+	sslKeyPath, _ := db.GetSetting("ssl_key_path")
+	sslChainPath, _ := db.GetSetting("ssl_chain_path")
+
+	if sslMode == "none" || sslCertPath == "" || sslKeyPath == "" {
+		log.Printf("SSL 未配置 (mode=%s, cert=%s, key=%s)", sslMode, sslCertPath, sslKeyPath)
+		return false
+	}
+
+	cert, err := loadTLSCert(sslCertPath, sslKeyPath, sslChainPath)
+	if err != nil {
+		errMsg := fmt.Sprintf("SSL 证书加载失败: %v", err)
+		log.Printf("警告: %s", errMsg)
+		db.SetSetting("ssl_error", errMsg)
+		db.SetSetting("ssl_redirect", "false")
+		return false
+	}
+
+	httpsAddr := fmt.Sprintf(":%d", httpsPort)
+
+	if httpsServer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		httpsServer.Shutdown(ctx)
+		log.Printf("HTTPS 服务器已关闭，准备重新启动")
+	}
+
+	httpsServer = &http.Server{
+		Addr:    httpsAddr,
+		Handler: api.GetRouter(),
+		TLSConfig: &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS12,
+		},
+	}
+
+	go func() {
+		log.Printf("HTTPS 服务器启动于 %s", httpsAddr)
+		db.SetSetting("ssl_error", "")
+		api.SetHTTPSReady()
+		if err := httpsServer.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+			log.Printf("HTTPS 服务器错误: %v", err)
+			api.ClearHTTPSReady()
+		}
+	}()
+
+	return true
+}
+
 func startServer() {
 	cfg, err := config.LoadConfig(cfgFile)
 	if err != nil {
@@ -68,8 +127,11 @@ func startServer() {
 
 	router := api.SetupRouter(cfg)
 
+	// 设置 SSL 热加载回调
+	api.ReloadSSLFunc = ReloadSSL
+
 	httpPort := port
-	httpsPort := 33551
+	httpsPort = 33551
 
 	// 从数据库读取端口配置
 	if v, _ := db.GetSetting("http_port"); v != "" {

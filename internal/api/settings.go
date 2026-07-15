@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -65,16 +66,32 @@ func updateSettings(c *gin.Context) {
 	}
 
 	var errors []string
+	sslChanged := false
 	for key, value := range req {
 		strValue := fmt.Sprintf("%v", value)
 		if err := db.SetSetting(key, strValue); err != nil {
 			errors = append(errors, fmt.Sprintf("%s: %v", key, err))
+		}
+		// 检测 SSL 相关设置是否变更
+		if key == "ssl_mode" || key == "ssl_cert_path" || key == "ssl_key_path" ||
+			key == "ssl_chain_path" || key == "https_port" || key == "ssl_redirect" {
+			sslChanged = true
 		}
 	}
 
 	if len(errors) > 0 {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存设置失败", "details": errors})
 		return
+	}
+
+	// SSL 设置变更时触发热加载
+	if sslChanged && ReloadSSLFunc != nil {
+		go func() {
+			success := ReloadSSLFunc()
+			if success {
+				log.Println("SSL 证书热加载成功")
+			}
+		}()
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "设置已保存"})

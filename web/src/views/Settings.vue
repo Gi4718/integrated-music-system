@@ -372,6 +372,9 @@ const certFileInput = ref<HTMLInputElement>()
 const keyFileInput = ref<HTMLInputElement>()
 const chainFileInput = ref<HTMLInputElement>()
 
+// 标记设置是否已加载完成，防止加载时触发自动保存
+const isLoaded = ref(false)
+
 // 分区块保存状态
 const savingDownload = ref(false)
 const downloadSavedTip = ref(false)
@@ -636,6 +639,8 @@ const loadSettings = async () => {
       }
     }
   } catch {}
+  // 标记设置已加载完成，允许自动保存
+  isLoaded.value = true
 }
 
 // 保存本地下载配置
@@ -791,6 +796,9 @@ watch(pluginFieldValues, syncPluginFields, { deep: true })
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
 
 const autoSave = async () => {
+  // 如果设置尚未加载完成，不触发自动保存
+  if (!isLoaded.value) return
+
   if (autoSaveTimer) clearTimeout(autoSaveTimer)
   autoSaveTimer = setTimeout(async () => {
     try {

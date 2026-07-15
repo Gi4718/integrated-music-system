@@ -30,8 +30,20 @@ func IsHTTPSReady() bool {
 	return httpsReady.Load()
 }
 
+// ReloadSSLFunc 是 SSL 热加载回调函数，由 cmd/server/main.go 设置
+var ReloadSSLFunc func() bool
+
+// GetRouter 返回已配置的 router（用于热加载时获取新的 handler）
+var currentRouter *gin.Engine
+
+// GetRouter 返回当前 router
+func GetRouter() *gin.Engine {
+	return currentRouter
+}
+
 func SetupRouter(cfg *config.Config) *gin.Engine {
 	router := gin.Default()
+	currentRouter = router
 
 	// 初始化任务服务（需在下载引擎之前创建，因为引擎需要引用它）
 	taskService := service.NewTaskService()

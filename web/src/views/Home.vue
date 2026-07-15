@@ -92,7 +92,12 @@ const loadRecommendations = async () => {
   }
 }
 
-onMounted(loadRecommendations)
+onMounted(async () => {
+  // 先检查登录状态，确保推荐内容基于正确的用户
+  await authStore.checkLoginStatus()
+  // 然后加载推荐内容
+  loadRecommendations()
+})
 
 // 监听网易云登录状态变化，登录后刷新推荐
 watch(() => authStore.isLoggedIn, (newVal, oldVal) => {

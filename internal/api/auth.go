@@ -155,13 +155,23 @@ func getLoginStatus(c *gin.Context) {
 	now := time.Now()
 	cookieValid := now.Before(user.CookieExpires)
 
-	// 清理 cookie 后用 /user/account 获取最新用户信息
-	netease := service.NewNeteaseService("http://127.0.0.1:3000")
-	cleanCookie := service.CleanCookie(user.Cookie)
-	vipType := 0
+	// cookie 已过期，返回未登录
+	if !cookieValid {
+		c.JSON(http.StatusOK, gin.H{
+			"logged_in":    false,
+			"cookie_valid": false,
+		})
+		return
+	}
+
+	// cookie 有效，先返回已登录状态（使用数据库缓存的用户信息）
 	nickname := user.Nickname
 	avatarURL := user.AvatarURL
+	vipType := 0
 
+	// 尝试用网易云API刷新用户信息（失败不影响登录状态）
+	netease := service.NewNeteaseService("http://127.0.0.1:3000")
+	cleanCookie := service.CleanCookie(user.Cookie)
 	accountBody, err := netease.GetUserAccount(cleanCookie)
 	if err == nil {
 		var accountResult map[string]interface{}
@@ -188,14 +198,13 @@ func getLoginStatus(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"logged_in":    true,
-		"cookie_valid": cookieValid,
+		"logged_in":      true,
+		"cookie_valid":   true,
 		"cookie_expires": user.CookieExpires.Format(time.RFC3339),
 		"user": gin.H{
-			"user_id":    user.UserID,
-			"nickname":   nickname,
-			"avatar":     avatarURL,
-			"expires_at": user.CookieExpires,
+			"user_id":  user.UserID,
+			"nickname": nickname,
+			"avatar":   avatarURL,
 		},
 		"vipType": vipType,
 	})
@@ -314,6 +323,12 @@ func loginByPhone(c *gin.Context) {
     avatarURL, _ := profile["avatarUrl"].(string)
     cookie := extractCookie(result)
 
+    // 如果用户ID为0，说明API返回的数据异常
+    if userID == 0 {
+      c.JSON(http.StatusInternalServerError, gin.H{"error": "获取用户信息失败"})
+      return
+    }
+
     // 清理 cookie
     cleanCookie := service.CleanCookie(cookie)
 
@@ -324,7 +339,10 @@ func loginByPhone(c *gin.Context) {
       Cookie:        cleanCookie,
       CookieExpires: time.Now().Add(30 * 24 * time.Hour),
     }
-    db.SaveUser(user)
+    if err := db.SaveUser(user); err != nil {
+      c.JSON(http.StatusInternalServerError, gin.H{"error": "保存用户信息失败"})
+      return
+    }
 
     c.JSON(http.StatusOK, gin.H{
       "code":    200,
@@ -369,6 +387,12 @@ func loginByPhonePassword(c *gin.Context) {
     avatarURL, _ := profile["avatarUrl"].(string)
     cookie := extractCookie(result)
 
+    // 如果用户ID为0，说明API返回的数据异常
+    if userID == 0 {
+      c.JSON(http.StatusInternalServerError, gin.H{"error": "获取用户信息失败"})
+      return
+    }
+
     // 清理 cookie
     cleanCookie := service.CleanCookie(cookie)
 
@@ -379,7 +403,10 @@ func loginByPhonePassword(c *gin.Context) {
       Cookie:        cleanCookie,
       CookieExpires: time.Now().Add(30 * 24 * time.Hour),
     }
-    db.SaveUser(user)
+    if err := db.SaveUser(user); err != nil {
+      c.JSON(http.StatusInternalServerError, gin.H{"error": "保存用户信息失败"})
+      return
+    }
 
     c.JSON(http.StatusOK, gin.H{
       "code":    200,
@@ -489,6 +516,12 @@ func secondVerify(c *gin.Context) {
     avatarURL, _ := profile["avatarUrl"].(string)
     cookie := extractCookie(result)
 
+    // 如果用户ID为0，说明API返回的数据异常
+    if userID == 0 {
+      c.JSON(http.StatusInternalServerError, gin.H{"error": "获取用户信息失败"})
+      return
+    }
+
     // 清理 cookie
     cleanCookie := service.CleanCookie(cookie)
 
@@ -499,7 +532,10 @@ func secondVerify(c *gin.Context) {
       Cookie:        cleanCookie,
       CookieExpires: time.Now().Add(30 * 24 * time.Hour),
     }
-    db.SaveUser(user)
+    if err := db.SaveUser(user); err != nil {
+      c.JSON(http.StatusInternalServerError, gin.H{"error": "保存用户信息失败"})
+      return
+    }
 
     c.JSON(http.StatusOK, gin.H{
       "code":    200,
@@ -544,6 +580,12 @@ func loginByEmail(c *gin.Context) {
     avatarURL, _ := profile["avatarUrl"].(string)
     cookie := extractCookie(result)
 
+    // 如果用户ID为0，说明API返回的数据异常
+    if userID == 0 {
+      c.JSON(http.StatusInternalServerError, gin.H{"error": "获取用户信息失败"})
+      return
+    }
+
     // 清理 cookie
     cleanCookie := service.CleanCookie(cookie)
 
@@ -554,7 +596,10 @@ func loginByEmail(c *gin.Context) {
       Cookie:        cleanCookie,
       CookieExpires: time.Now().Add(30 * 24 * time.Hour),
     }
-    db.SaveUser(user)
+    if err := db.SaveUser(user); err != nil {
+      c.JSON(http.StatusInternalServerError, gin.H{"error": "保存用户信息失败"})
+      return
+    }
 
     c.JSON(http.StatusOK, gin.H{
       "code":    200,
