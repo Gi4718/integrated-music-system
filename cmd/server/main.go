@@ -15,6 +15,7 @@ import (
 	"endfield-music/internal/api"
 	"endfield-music/internal/config"
 	"endfield-music/internal/db"
+	"endfield-music/internal/service"
 
 	"github.com/spf13/cobra"
 )
@@ -217,6 +218,21 @@ func startServer() {
 		log.Printf("SSL 未启用 (mode=%s, cert=%s, key=%s)", sslMode, sslCertPath, sslKeyPath)
 	}
 
+	// 启动 ACME 证书自动续期检查（每天检查一次）
+	go func() {
+		// 启动后先等待 1 小时再开始检查，避免刚启动就触发
+		time.Sleep(1 * time.Hour)
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+
+		// 先检查一次
+		checkAndRenew()
+
+		for range ticker.C {
+			checkAndRenew()
+		}
+	}()
+
 	// 等待退出信号
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -232,5 +248,23 @@ func main() {
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+}
+
+// checkAndRenew 检查并续期 ACME 证书
+func checkAndRenew() {
+	needRenew, success, err := service.CheckAndRenewCert()
+	if !needRenew {
+		return
+	}
+	if err != nil {
+		log.Printf("ACME 证书自动续期检查失败: %v", err)
+		return
+	}
+	if success {
+		log.Printf("ACME 证书自动续期成功，正在热加载新证书")
+		ReloadSSL()
+	} else {
+		log.Printf("ACME 证书自动续期失败，将在下次检查时重试")
 	}
 }

@@ -9,10 +9,13 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"endfield-music/internal/db"
 
 	"github.com/go-acme/lego/v4/certcrypto"
 	"github.com/go-acme/lego/v4/certificate"
@@ -191,4 +194,49 @@ func LoadACMEConfig(jsonStr string) ACMEConfig {
 	var cfg ACMEConfig
 	json.Unmarshal([]byte(jsonStr), &cfg)
 	return cfg
+}
+
+// CheckAndRenewCert 检查证书是否即将过期，如果是则自动续期
+// 返回是否需要续期、续期是否成功、错误信息
+func CheckAndRenewCert() (bool, bool, error) {
+	sslMode, _ := db.GetSetting("ssl_mode")
+	if sslMode != "acme" {
+		return false, false, nil
+	}
+
+	acmeConfigJSON, _ := db.GetSetting("acme_config")
+	if acmeConfigJSON == "" {
+		return false, false, nil
+	}
+
+	config := LoadACMEConfig(acmeConfigJSON)
+
+	certPath, _ := db.GetSetting("ssl_cert_path")
+	if certPath == "" {
+		return false, false, nil
+	}
+
+	expiry, err := GetCertExpiry(certPath)
+	if err != nil {
+		return false, false, fmt.Errorf("读取证书过期时间失败: %w", err)
+	}
+
+	// 距离过期不到 30 天时自动续期
+	threshold := time.Now().Add(30 * 24 * time.Hour)
+	if expiry.After(threshold) {
+		return false, false, nil
+	}
+
+	log.Printf("证书将于 %s 过期，开始自动续期", expiry.Format("2006-01-02"))
+
+	newCertPath, newKeyPath, err := RunACME(config)
+	if err != nil {
+		return true, false, fmt.Errorf("自动续期失败: %w", err)
+	}
+
+	db.SetSetting("ssl_cert_path", newCertPath)
+	db.SetSetting("ssl_key_path", newKeyPath)
+
+	log.Printf("ACME 证书自动续期成功，新证书路径: %s", newCertPath)
+	return true, true, nil
 }

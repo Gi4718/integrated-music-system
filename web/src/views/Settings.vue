@@ -333,8 +333,10 @@
               <input
                 v-model="pluginFieldValues[field.key]"
                 class="setting-input"
-                :type="field.type === 'password' ? 'password' : 'text'"
+                :type="getFieldInputType(field.key)"
                 :placeholder="field.placeholder || field.label"
+                @focus="onFieldFocus(field.key)"
+                @blur="onFieldBlur(field.key)"
               />
               <button v-if="field.hint" class="help-btn" @mouseenter="showTip(field.key)" @mouseleave="hideTip()">?</button>
               <div v-if="activeTip === field.key" class="tip-popup tip-left">{{ field.hint }}</div>
@@ -347,6 +349,42 @@
             {{ acmeApplying ? '申请中...' : '申请证书' }}
           </button>
           <span v-if="acmeMessage" class="acme-message" :class="acmeSuccess ? 'success' : 'error'">{{ acmeMessage }}</span>
+        </div>
+
+        <!-- ACME 证书验证详情 -->
+        <div class="setting-row" v-if="settings.sslCertPath && settings.sslKeyPath">
+          <label class="setting-label">证书验证</label>
+          <div class="cert-validation-section">
+            <button class="validate-btn" @click="validateSSLCert" :disabled="certValidating">
+              {{ certValidating ? '验证中...' : '验证证书' }}
+            </button>
+
+            <div v-if="certInfo" class="cert-info" :class="{ 'valid': certValid, 'invalid': !certValid }">
+              <div class="cert-status">
+                <span class="status-icon">{{ certValid ? '✓' : '✗' }}</span>
+                <span class="status-text">{{ certInfo.message }}</span>
+              </div>
+
+              <div v-if="certValid && certInfo.subject" class="cert-details">
+                <div class="detail-row">
+                  <span class="detail-label">颁发给:</span>
+                  <span class="detail-value">{{ certInfo.subject }}</span>
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">颁发者:</span>
+                  <span class="detail-value">{{ certInfo.issuer }}</span>
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">有效期:</span>
+                  <span class="detail-value">{{ certInfo.not_before }} 至 {{ certInfo.not_after }}</span>
+                </div>
+                <div class="detail-row" v-if="certInfo.domains && certInfo.domains.length > 0">
+                  <span class="detail-label">域名:</span>
+                  <span class="detail-value">{{ certInfo.domains.join(', ') }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -458,13 +496,13 @@ const settings = ref({
 })
 
 const weekdays = [
-  { value: 0, label: '周日' },
   { value: 1, label: '周一' },
   { value: 2, label: '周二' },
   { value: 3, label: '周三' },
   { value: 4, label: '周四' },
   { value: 5, label: '周五' },
-  { value: 6, label: '周六' }
+  { value: 6, label: '周六' },
+  { value: 0, label: '周日' }
 ]
 
 const toggleWeekday = (day: number) => {
@@ -513,6 +551,8 @@ const acmePlugins = ref<ACMEPlugin[]>([])
 const selectedPluginId = ref('')
 const pluginDelay = ref(30)
 const pluginFieldValues = ref<Record<string, string>>({})
+const maskedFieldValues = ref<Record<string, string>>({}) // 存储敏感字段的真实值
+const focusedField = ref<string | null>(null) // 当前聚焦的字段
 
 const currentPlugin = computed(() => {
   return acmePlugins.value.find(p => p.id === selectedPluginId.value) || null
@@ -531,9 +571,12 @@ const onPluginChange = () => {
   if (plugin) {
     pluginDelay.value = plugin.delay
     pluginFieldValues.value = {}
+    maskedFieldValues.value = {}
     plugin.fields.forEach(f => {
       if (settings.value.acmeFields[f.key]) {
-        pluginFieldValues.value[f.key] = settings.value.acmeFields[f.key]
+        const realValue = settings.value.acmeFields[f.key]
+        maskedFieldValues.value[f.key] = realValue // 存储真实值
+        pluginFieldValues.value[f.key] = maskValue(realValue) // 显示打码值
       }
     })
   }
@@ -570,6 +613,44 @@ const countdownText = computed(() => {
 
 const showTip = (name: string) => { activeTip.value = name }
 const hideTip = () => { activeTip.value = '' }
+
+// 敏感字段打码：前后保留3位，中间用 * 替代
+const maskValue = (val: string) => {
+  if (!val) return ''
+  if (val.length <= 6) return '***'
+  return val.slice(0, 3) + '***' + val.slice(-3)
+}
+
+// 敏感字段列表（这些字段需要打码显示）
+const sensitiveFieldKeys = ['token', 'secret', 'key', 'password', 'apikey', 'api_key', 'global_api_key', 'email', 'account', 'zone', 'client_id', 'tenant', 'subscription', 'consumer']
+
+const isSensitiveField = (fieldKey: string) => {
+  const lower = fieldKey.toLowerCase()
+  return sensitiveFieldKeys.some(k => lower.includes(k))
+}
+
+// 获取输入框类型：敏感字段聚焦时为 text，失焦时为 text（用打码值）
+const getFieldInputType = (_fieldKey: string) => {
+  return 'text'
+}
+
+// 聚焦时显示真实值
+const onFieldFocus = (fieldKey: string) => {
+  focusedField.value = fieldKey
+  if (maskedFieldValues.value[fieldKey]) {
+    pluginFieldValues.value[fieldKey] = maskedFieldValues.value[fieldKey]
+  }
+}
+
+// 失焦时恢复打码显示
+const onFieldBlur = (fieldKey: string) => {
+  focusedField.value = null
+  if (maskedFieldValues.value[fieldKey]) {
+    // 用户编辑后更新真实值
+    maskedFieldValues.value[fieldKey] = pluginFieldValues.value[fieldKey]
+    pluginFieldValues.value[fieldKey] = maskValue(pluginFieldValues.value[fieldKey])
+  }
+}
 
 const triggerUpload = (type: 'cert' | 'key' | 'chain') => {
   const input = type === 'cert' ? certFileInput.value : type === 'key' ? keyFileInput.value : chainFileInput.value
@@ -690,14 +771,29 @@ const loadSettings = async () => {
         settings.value.acmeFields = typeof s.acme_fields === 'string'
           ? JSON.parse(s.acme_fields)
           : s.acme_fields
-        // 同步已保存的字段值到 UI
+        // 同步已保存的字段值到 UI，并对敏感字段进行打码
         if (typeof s.acme_fields === 'string') {
           try {
             const parsed = JSON.parse(s.acme_fields)
+            maskedFieldValues.value = { ...parsed } // 存储真实值
             pluginFieldValues.value = { ...parsed }
+            // 对敏感字段进行打码显示
+            Object.keys(pluginFieldValues.value).forEach(key => {
+              if (isSensitiveField(key) && pluginFieldValues.value[key]) {
+                pluginFieldValues.value[key] = maskValue(pluginFieldValues.value[key])
+              }
+            })
           } catch {}
         } else {
-          pluginFieldValues.value = { ...(s.acme_fields as Record<string, string>) }
+          const fields = s.acme_fields as Record<string, string>
+          maskedFieldValues.value = { ...fields } // 存储真实值
+          pluginFieldValues.value = { ...fields }
+          // 对敏感字段进行打码显示
+          Object.keys(pluginFieldValues.value).forEach(key => {
+            if (isSensitiveField(key) && pluginFieldValues.value[key]) {
+              pluginFieldValues.value[key] = maskValue(pluginFieldValues.value[key])
+            }
+          })
         }
       }
       settings.value.lastSyncTime = s.last_sync_time || ''
@@ -806,7 +902,14 @@ const saveSSLSettings = async () => {
       data.acme_provider = selectedPluginId.value
       data.acme_email = settings.value.acmeEmail
       data.acme_domain = settings.value.acmeDomain
-      data.acme_fields = JSON.stringify(pluginFieldValues.value)
+      // 保存真实值，而不是打码后的值
+      const realFieldValues = { ...pluginFieldValues.value }
+      Object.keys(realFieldValues).forEach(key => {
+        if (maskedFieldValues.value[key]) {
+          realFieldValues[key] = maskedFieldValues.value[key]
+        }
+      })
+      data.acme_fields = JSON.stringify(realFieldValues)
     }
     await settingsAPI.updateSettings(data)
     sslSavedTip.value = true
@@ -848,11 +951,19 @@ const applyACME = async () => {
   acmeMessage.value = ''
   acmeSuccess.value = false
   try {
+    // 构建真实值，而不是打码后的值
+    const realFieldValues = { ...pluginFieldValues.value }
+    Object.keys(realFieldValues).forEach(key => {
+      if (maskedFieldValues.value[key]) {
+        realFieldValues[key] = maskedFieldValues.value[key]
+      }
+    })
+
     const res = await settingsAPI.applyACME({
       provider: selectedPluginId.value,
       email: settings.value.acmeEmail,
       domain: settings.value.acmeDomain,
-      fields: pluginFieldValues.value
+      fields: realFieldValues
     })
 
     // 后端已经保存了 ssl_mode=acme、ssl_cert_path、ssl_key_path，并触发了热加载

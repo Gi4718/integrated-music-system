@@ -50,6 +50,10 @@ func getSettings(c *gin.Context) {
 		"acme_secret_key": getSetting("acme_secret_key", ""),
 		"acme_token":      getSetting("acme_token", ""),
 		"acme_region_id":  getSetting("acme_region_id", ""),
+		"acme_fields":     getSetting("acme_fields", ""),
+		"sync_mode":       getSetting("sync_mode", "interval"),
+		"sync_weekdays":   getSetting("sync_weekdays", "[]"),
+		"sync_time":       getSetting("sync_time", "08:00"),
 		"last_sync_time":  getSetting("last_sync_time", ""),
 		"next_sync_time":  getSetting("next_sync_time", ""),
 		"disable_page_animation": getSetting("disable_page_animation", "false"),
@@ -297,6 +301,13 @@ func applyACME(c *gin.Context) {
 	configJSON, _ := json.Marshal(config)
 	db.SetSetting("acme_config", string(configJSON))
 	db.SetSetting("ssl_mode", "acme")
+
+	// 保存插件字段值，以便重新加载时恢复
+	fieldsJSON, _ := json.Marshal(req.Fields)
+	db.SetSetting("acme_fields", string(fieldsJSON))
+	db.SetSetting("acme_provider", req.Provider)
+	db.SetSetting("acme_email", req.Email)
+	db.SetSetting("acme_domain", req.Domain)
 
 	certPath, keyPath, err := service.RunACME(config)
 	if err != nil {
