@@ -786,6 +786,51 @@ const syncPluginFields = () => {
 }
 
 watch(pluginFieldValues, syncPluginFields, { deep: true })
+
+// 自动保存功能：监听设置变化并自动保存
+let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
+
+const autoSave = async () => {
+  if (autoSaveTimer) clearTimeout(autoSaveTimer)
+  autoSaveTimer = setTimeout(async () => {
+    try {
+      const data = {
+        download_path: settings.value.downloadPath,
+        song_format: settings.value.songFormat,
+        auto_sync: settings.value.autoSync.toString(),
+        sync_interval: settings.value.syncInterval.toString(),
+        sync_unit: settings.value.syncUnit,
+        delete_removed: settings.value.deleteRemoved.toString(),
+        playlist_format: settings.value.playlistFormat,
+        quality: settings.value.quality,
+        resume_downloads: settings.value.resumeDownloads.toString(),
+        auto_data_complete: settings.value.autoDataComplete.toString(),
+        data_complete_interval: settings.value.dataCompleteInterval.toString(),
+        data_complete_unit: settings.value.dataCompleteUnit,
+        data_complete_cover: settings.value.dataCompleteCover.toString(),
+        data_complete_lyrics: settings.value.dataCompleteLyrics.toString(),
+        data_complete_artist: settings.value.dataCompleteArtist.toString(),
+        ssl_mode: settings.value.sslMode,
+        ssl_cert_path: settings.value.sslCertPath,
+        ssl_key_path: settings.value.sslKeyPath,
+        ssl_chain_path: settings.value.sslChainPath,
+        http_port: settings.value.httpPort.toString(),
+        https_port: settings.value.httpsPort.toString(),
+        ssl_redirect: settings.value.sslRedirect.toString(),
+        disable_page_animation: disablePageAnimation.value.toString()
+      }
+      await settingsAPI.updateSettings(data)
+      // 同步到 localStorage
+      localStorage.setItem('disablePageAnimation', disablePageAnimation.value.toString())
+    } catch (error) {
+      console.error('自动保存设置失败:', error)
+    }
+  }, 500)
+}
+
+// 监听所有设置变化
+watch(() => settings.value, autoSave, { deep: true })
+watch(disablePageAnimation, autoSave)
 </script>
 
 <style scoped>
