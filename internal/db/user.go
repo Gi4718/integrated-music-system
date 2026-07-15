@@ -7,12 +7,13 @@ import (
 )
 
 func GetCurrentUser() (*model.User, error) {
-	query := `SELECT id, user_id, nickname, avatar_url, cookie, cookie_expires, created_at, updated_at
+	query := `SELECT id, user_id, nickname, avatar_url, cookie, cookie_expires, created_at, updated_at, COALESCE(system_user_id, 0)
 			  FROM users ORDER BY updated_at DESC LIMIT 1`
 
 	row := dbConn.QueryRow(query)
 
 	var user model.User
+	var systemUserID int
 	err := row.Scan(
 		&user.ID,
 		&user.UserID,
@@ -22,6 +23,7 @@ func GetCurrentUser() (*model.User, error) {
 		&user.CookieExpires,
 		&user.CreatedAt,
 		&user.UpdatedAt,
+		&systemUserID,
 	)
 
 	if err == sql.ErrNoRows {
@@ -35,8 +37,8 @@ func GetCurrentUser() (*model.User, error) {
 }
 
 func SaveUser(user *model.User) error {
-	query := `INSERT INTO users (user_id, nickname, avatar_url, cookie, cookie_expires, updated_at)
-			  VALUES (?, ?, ?, ?, ?, ?)
+	query := `INSERT INTO users (user_id, nickname, avatar_url, cookie, cookie_expires, system_user_id, updated_at)
+			  VALUES (?, ?, ?, ?, ?, 0, ?)
 			  ON CONFLICT(user_id) DO UPDATE SET
 			  nickname = excluded.nickname,
 			  avatar_url = excluded.avatar_url,
