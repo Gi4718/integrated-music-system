@@ -64,9 +64,17 @@ func updateSettings(c *gin.Context) {
 		return
 	}
 
+	var errors []string
 	for key, value := range req {
 		strValue := fmt.Sprintf("%v", value)
-		db.SetSetting(key, strValue)
+		if err := db.SetSetting(key, strValue); err != nil {
+			errors = append(errors, fmt.Sprintf("%s: %v", key, err))
+		}
+	}
+
+	if len(errors) > 0 {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存设置失败", "details": errors})
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "设置已保存"})
