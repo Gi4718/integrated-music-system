@@ -12,6 +12,7 @@ web/dist/
 
 # Database
 *.db
+*.db-journal
 *.sqlite
 *.sqlite3
 
