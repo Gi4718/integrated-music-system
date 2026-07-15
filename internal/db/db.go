@@ -46,7 +46,7 @@ func GetDB() *sql.DB {
 
 func initTables() error {
 	tables := []string{
-		// 用户信息表
+		// 用户信息表（支持多用户系统）
 		`CREATE TABLE IF NOT EXISTS users (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			user_id INTEGER UNIQUE NOT NULL,
@@ -54,6 +54,7 @@ func initTables() error {
 			avatar_url TEXT,
 			cookie TEXT,
 			cookie_expires DATETIME,
+			system_user_id INTEGER DEFAULT 0,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
@@ -95,11 +96,13 @@ func initTables() error {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 
-		// 设置表
+		// 设置表（支持多用户）
 		`CREATE TABLE IF NOT EXISTS settings (
-			key TEXT PRIMARY KEY,
+			key TEXT NOT NULL,
 			value TEXT,
-			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			user_id INTEGER DEFAULT 0,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY(key, user_id)
 		)`,
 
 		// 系统用户表（访问控制）
@@ -158,7 +161,7 @@ func initTables() error {
 		}
 	}
 
-	// 迁移：为已有 downloads 表添加新字段
+	// 迁移：为已有表添加新字段
 	migrations := []string{
 		`ALTER TABLE downloads ADD COLUMN download_url TEXT DEFAULT ''`,
 		`ALTER TABLE downloads ADD COLUMN total_size INTEGER DEFAULT 0`,
@@ -170,11 +173,28 @@ func initTables() error {
 		`ALTER TABLE downloads ADD COLUMN lyrics_downloaded BOOLEAN DEFAULT 0`,
 		`ALTER TABLE downloads ADD COLUMN artist_completed BOOLEAN DEFAULT 0`,
 		`ALTER TABLE downloads ADD COLUMN id3_embedded BOOLEAN DEFAULT 0`,
-
+		`ALTER TABLE users ADD COLUMN system_user_id INTEGER DEFAULT 0`,
 	}
 
 	for _, m := range migrations {
 		dbConn.Exec(m) // 忽略错误（字段已存在时会报错，这是预期的）
+	}
+
+	// 特殊迁移：settings 表需要重建以支持 user_id
+	var hasUserID bool
+	err := dbConn.QueryRow("SELECT COUNT(*) FROM pragma_table_info('settings') WHERE name='user_id'").Scan(&hasUserID)
+	if err == nil && !hasUserID {
+		dbConn.Exec(`CREATE TABLE IF NOT EXISTS settings_backup AS SELECT * FROM settings`)
+		dbConn.Exec(`DROP TABLE settings`)
+		dbConn.Exec(`CREATE TABLE settings (
+			key TEXT NOT NULL,
+			value TEXT,
+			user_id INTEGER DEFAULT 0,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY(key, user_id)
+		)`)
+		dbConn.Exec(`INSERT INTO settings (key, value, user_id, updated_at) SELECT key, value, 0, updated_at FROM settings_backup`)
+		dbConn.Exec(`DROP TABLE settings_backup`)
 	}
 
 	// 创建索引（在迁移之后，确保所有字段都存在）

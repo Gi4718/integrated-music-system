@@ -31,9 +31,8 @@ func GetSettingByUser(userID int, key string) (string, error) {
 
 // SetSetting 设置全局设置（向后兼容）
 func SetSetting(key, value string) error {
-	query := `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
-		  ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
-		  WHERE settings.user_id = 0 OR settings.user_id IS NULL`
+	query := `INSERT INTO settings (key, value, user_id, updated_at) VALUES (?, ?, 0, ?)
+		  ON CONFLICT(key, user_id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
 	_, err := dbConn.Exec(query, key, value, time.Now())
 	return err
 }
