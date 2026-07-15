@@ -70,6 +70,30 @@ docker compose up -d --build
 
 访问 `http://localhost:33550` 即可使用。
 
+### 直接使用 Docker 镜像
+
+```bash
+# 国内用户（推荐）
+docker pull docker.1ms.run/yinluo/integrated-music-system:latest
+docker tag docker.1ms.run/yinluo/integrated-music-system:latest yinluo/integrated-music-system:latest
+
+# 或直接拉取（需网络环境支持）
+docker pull yinluo/integrated-music-system:latest
+
+docker run -d \
+  --name integrated-music-system \
+  -p 33550:33550 \
+  -p 33551:33551 \
+  -v ./data/config:/data/config \
+  -v ./data/ssl:/data/ssl \
+  -v ./data/downloads:/data/downloads \
+  -v ./data/db:/data/db \
+  -v <你的音乐目录>:/music \
+  yinluo/integrated-music-system:latest
+```
+
+访问 `http://localhost:33550` 即可使用。
+
 ### 端口说明
 
 - `33550`: HTTP 端口
@@ -83,7 +107,7 @@ docker compose up -d --build
 | `./data/ssl` | SSL 证书 |
 | `./data/downloads` | 下载文件 |
 | `./data/db` | 数据库 |
-| `/vol1/1000/music` → `/music` | 音乐文件存储 |
+| `<你的音乐目录>` → `/music` | 音乐文件存储（请根据实际路径修改） |
 
 ### 首次使用
 

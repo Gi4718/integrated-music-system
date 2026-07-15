@@ -1,0 +1,61 @@
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Node
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build outputs
+web/dist
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Documentation
+README.md
+LICENSE
+*.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.local
+
+# Test files
+test_*
+debug_*
+check_*
+fix_*
+gen_*
+*.test.js
+*.spec.js
+
+# Archives
+*.zip
+*.tar.gz
+*.rar
+
+# Icons
+*.ico

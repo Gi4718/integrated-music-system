@@ -1,6 +1,6 @@
 services:
   endfield-music:
-    build: .
+    image: yinluo/integrated-music-system:latest
     container_name: endfield-music
     ports:
       - "33550:33550"  # HTTP
