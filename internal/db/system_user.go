@@ -108,6 +108,110 @@ func HasSystemUser() (bool, error) {
 	return count > 0, err
 }
 
+// GetSystemUserByID 根据 ID 获取系统用户
+func GetSystemUserByID(id int) (*SystemUser, error) {
+	var user SystemUser
+	var lastLoginAt sql.NullTime
+	var lockedUntil sql.NullTime
+
+	err := dbConn.QueryRow(
+		"SELECT id, username, password_hash, role, created_at, last_login_at, failed_attempts, locked_until FROM system_users WHERE id = ?",
+		id,
+	).Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Role, &user.CreatedAt, &lastLoginAt, &user.FailedAttempts, &lockedUntil)
+
+	if err == sql.ErrNoRows {
+		return nil, err
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if lastLoginAt.Valid {
+		user.LastLoginAt = lastLoginAt.Time
+	}
+	if lockedUntil.Valid {
+		user.LockedUntil = lockedUntil.Time
+	}
+
+	return &user, nil
+}
+
+// GetAllSystemUsers 获取所有系统用户
+func GetAllSystemUsers() ([]SystemUser, error) {
+	rows, err := dbConn.Query("SELECT id, username, password_hash, role, created_at, last_login_at, failed_attempts, locked_until FROM system_users ORDER BY id ASC")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []SystemUser
+	for rows.Next() {
+		var user SystemUser
+		var lastLoginAt sql.NullTime
+		var lockedUntil sql.NullTime
+
+		err := rows.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Role, &user.CreatedAt, &lastLoginAt, &user.FailedAttempts, &lockedUntil)
+		if err != nil {
+			return nil, err
+		}
+
+		if lastLoginAt.Valid {
+			user.LastLoginAt = lastLoginAt.Time
+		}
+		if lockedUntil.Valid {
+			user.LockedUntil = lockedUntil.Time
+		}
+
+		users = append(users, user)
+	}
+
+	return users, nil
+}
+
+// UpdateUserRole 更新用户角色
+func UpdateUserRole(userID int, role string) error {
+	_, err := dbConn.Exec("UPDATE system_users SET role = ? WHERE id = ?", role, userID)
+	return err
+}
+
+// UpdateUserPassword 更新用户密码
+func UpdateUserPassword(userID int, password string) error {
+	hash := hashPassword(password)
+	_, err := dbConn.Exec("UPDATE system_users SET password_hash = ? WHERE id = ?", hash, userID)
+	return err
+}
+
+// DeleteSystemUser 删除系统用户
+func DeleteSystemUser(userID int) error {
+	// 删除用户关联的网易云账号
+	dbConn.Exec("DELETE FROM users WHERE system_user_id = ?", userID)
+	// 删除用户关联的设置
+	dbConn.Exec("DELETE FROM settings WHERE user_id = ?", userID)
+	// 删除用户
+	_, err := dbConn.Exec("DELETE FROM system_users WHERE id = ?", userID)
+	return err
+}
+
+// UsernameExists 检查用户名是否已存在
+func UsernameExists(username string) bool {
+	var count int
+	err := dbConn.QueryRow("SELECT COUNT(*) FROM system_users WHERE username = ?", username).Scan(&count)
+	if err != nil {
+		return false
+	}
+	return count > 0
+}
+
+// CreateSystemUserWithRole 创建指定角色的系统用户
+func CreateSystemUserWithRole(username, password, role string) error {
+	hash := hashPassword(password)
+	_, err := dbConn.Exec(
+		"INSERT INTO system_users (username, password_hash, role, created_at, failed_attempts) VALUES (?, ?, ?, ?, 0)",
+		username, hash, role, time.Now(),
+	)
+	return err
+}
+
 // hashPassword 使用SHA256加密密码
 func hashPassword(password string) string {
 	hash := sha256.Sum256([]byte(password))

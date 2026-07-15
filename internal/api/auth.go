@@ -14,6 +14,16 @@ import (
 	"github.com/skip2/go-qrcode"
 )
 
+// getSystemUserID 从 gin context 获取当前系统用户 ID
+func getSystemUserID(c *gin.Context) int {
+	if id, exists := c.Get("system_user_id"); exists {
+		if userID, ok := id.(int); ok {
+			return userID
+		}
+	}
+	return 0
+}
+
 func getQRKey(c *gin.Context) {
 	netease := service.NewNeteaseService("http://127.0.0.1:3000")
 	
@@ -108,7 +118,8 @@ func checkQRStatus(c *gin.Context) {
 								Cookie:        cleanCookie,
 								CookieExpires: time.Now().Add(30 * 24 * time.Hour),
 							}
-							if err := db.SaveUser(user); err == nil {
+							systemUserID := getSystemUserID(c)
+							if err := db.SaveUserForSystem(systemUserID, user); err == nil {
 								userSaved = true
 								response["user"] = gin.H{
 									"user_id":  user.UserID,
@@ -131,7 +142,8 @@ func checkQRStatus(c *gin.Context) {
 					Cookie:        cleanCookie,
 					CookieExpires: time.Now().Add(30 * 24 * time.Hour),
 				}
-				if err := db.SaveUser(user); err == nil {
+				systemUserID := getSystemUserID(c)
+				if err := db.SaveUserForSystem(systemUserID, user); err == nil {
 					response["user"] = gin.H{
 						"user_id":  user.UserID,
 						"nickname": user.Nickname,
@@ -146,7 +158,8 @@ func checkQRStatus(c *gin.Context) {
 }
 
 func getLoginStatus(c *gin.Context) {
-	user, err := db.GetCurrentUser()
+	systemUserID := getSystemUserID(c)
+	user, err := db.GetCurrentUserForSystem(systemUserID)
 	if err != nil || user == nil {
 		c.JSON(http.StatusOK, gin.H{"logged_in": false})
 		return
@@ -202,7 +215,8 @@ func getLoginStatus(c *gin.Context) {
 }
 
 func logout(c *gin.Context) {
-	if err := db.ClearCurrentUser(); err != nil {
+	systemUserID := getSystemUserID(c)
+	if err := db.ClearUserForSystem(systemUserID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -310,7 +324,8 @@ func loginByPhone(c *gin.Context) {
 			Cookie:        cookie,
 			CookieExpires: time.Now().Add(30 * 24 * time.Hour),
 		}
-		db.SaveUser(user)
+		systemUserID := getSystemUserID(c)
+		db.SaveUserForSystem(systemUserID, user)
 
 		c.JSON(http.StatusOK, gin.H{
 			"code":    200,
@@ -361,7 +376,8 @@ func loginByPhonePassword(c *gin.Context) {
 			Cookie:        cookie,
 			CookieExpires: time.Now().Add(30 * 24 * time.Hour),
 		}
-		db.SaveUser(user)
+		systemUserID := getSystemUserID(c)
+		db.SaveUserForSystem(systemUserID, user)
 
 		c.JSON(http.StatusOK, gin.H{
 			"code":    200,
@@ -427,7 +443,8 @@ func saveCookie(c *gin.Context) {
 		CookieExpires: time.Now().Add(30 * 24 * time.Hour),
 	}
 
-	if err := db.SaveUser(user); err != nil {
+	systemUserID := getSystemUserID(c)
+	if err := db.SaveUserForSystem(systemUserID, user); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存登录状态失败"})
 		return
 	}
@@ -490,7 +507,8 @@ func loginByEmail(c *gin.Context) {
 			Cookie:        cookie,
 			CookieExpires: time.Now().Add(30 * 24 * time.Hour),
 		}
-		db.SaveUser(user)
+		systemUserID := getSystemUserID(c)
+		db.SaveUserForSystem(systemUserID, user)
 
 		c.JSON(http.StatusOK, gin.H{
 			"code":    200,
@@ -543,7 +561,8 @@ func loginByQQ(c *gin.Context) {
 			Cookie:        c.GetString("cookie"),
 			CookieExpires: time.Now().Add(30 * 24 * time.Hour),
 		}
-		db.SaveUser(user)
+		systemUserID := getSystemUserID(c)
+		db.SaveUserForSystem(systemUserID, user)
 
 		c.JSON(http.StatusOK, gin.H{
 			"message": "登录成功",

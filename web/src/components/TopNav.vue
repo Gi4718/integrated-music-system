@@ -28,6 +28,7 @@
       <button @click="navigateTo('/')" class="nav-link" :class="{ 'router-link-active': $route.path === '/' }">首页</button>
       <button @click="navigateTo('/playlist')" class="nav-link" :class="{ 'router-link-active': $route.path === '/playlist' }">歌单</button>
       <button @click="navigateTo('/login')" class="nav-link" :class="{ 'router-link-active': $route.path === '/login' }">账号</button>
+      <button v-if="isAdmin" @click="navigateTo('/accounts')" class="nav-link" :class="{ 'router-link-active': $route.path === '/accounts' }">账户</button>
       <button @click="navigateTo('/settings')" class="nav-link" :class="{ 'router-link-active': $route.path === '/settings' }">设置</button>
       <button class="message-btn" @click="showMessagePanel = !showMessagePanel">
         <svg viewBox="0 0 24 24" width="20" height="20">
@@ -50,21 +51,24 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, inject } from 'vue'
+import { ref, onMounted, onUnmounted, inject, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { downloadAPI, taskAPI } from '../api'
 import { ElMessage } from 'element-plus'
 import MessagePanel from './MessagePanel.vue'
 import { useThemeStore } from '../stores/theme'
+import { useSystemAuthStore } from '../stores/systemAuth'
 
 const router = useRouter()
 const themeStore = useThemeStore()
+const systemAuth = useSystemAuthStore()
 const searchQuery = ref('')
 const showMessagePanel = ref(false)
 const unreadCount = ref(0)
 let pollTimer: number | null = null
 
 const isDark = ref(false)
+const isAdmin = computed(() => systemAuth.isAdmin)
 const toggleTheme = () => {
   themeStore.toggleTheme()
   isDark.value = themeStore.isDark

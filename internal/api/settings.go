@@ -19,22 +19,30 @@ import (
 )
 
 func getSettings(c *gin.Context) {
+	// 获取当前系统用户 ID
+	systemUserID := 0
+	if id, exists := c.Get("system_user_id"); exists {
+		if uid, ok := id.(int); ok {
+			systemUserID = uid
+		}
+	}
+
 	settings := map[string]interface{}{
-		"download_path":   getSetting("download_path", ""),
-		"song_format":     getSetting("song_format", "{songName} - {artist}"),
-		"quality":         getSetting("quality", "high"),
-		"auto_sync":       getSetting("auto_sync", "false"),
-		"sync_interval":   getSetting("sync_interval", "12"),
-		"sync_unit":       getSetting("sync_unit", "hour"),
-		"delete_removed":  getSetting("delete_removed", "false"),
-		"playlist_format": getSetting("playlist_format", "{playlistName}/{songName} - {artist}"),
-		"resume_downloads": getSetting("resume_downloads", "true"),
-		"auto_data_complete":      getSetting("auto_data_complete", "false"),
-		"data_complete_interval":  getSetting("data_complete_interval", "24"),
-		"data_complete_unit":      getSetting("data_complete_unit", "hour"),
-		"data_complete_cover":     getSetting("data_complete_cover", "true"),
-		"data_complete_lyrics":    getSetting("data_complete_lyrics", "true"),
-		"data_complete_artist":    getSetting("data_complete_artist", "true"),
+		"download_path":   getSettingByUser(systemUserID, "download_path", ""),
+		"song_format":     getSettingByUser(systemUserID, "song_format", "{songName} - {artist}"),
+		"quality":         getSettingByUser(systemUserID, "quality", "high"),
+		"auto_sync":       getSettingByUser(systemUserID, "auto_sync", "false"),
+		"sync_interval":   getSettingByUser(systemUserID, "sync_interval", "12"),
+		"sync_unit":       getSettingByUser(systemUserID, "sync_unit", "hour"),
+		"delete_removed":  getSettingByUser(systemUserID, "delete_removed", "false"),
+		"playlist_format": getSettingByUser(systemUserID, "playlist_format", "{playlistName}/{songName} - {artist}"),
+		"resume_downloads": getSettingByUser(systemUserID, "resume_downloads", "true"),
+		"auto_data_complete":      getSettingByUser(systemUserID, "auto_data_complete", "false"),
+		"data_complete_interval":  getSettingByUser(systemUserID, "data_complete_interval", "24"),
+		"data_complete_unit":      getSettingByUser(systemUserID, "data_complete_unit", "hour"),
+		"data_complete_cover":     getSettingByUser(systemUserID, "data_complete_cover", "true"),
+		"data_complete_lyrics":    getSettingByUser(systemUserID, "data_complete_lyrics", "true"),
+		"data_complete_artist":    getSettingByUser(systemUserID, "data_complete_artist", "true"),
 		"ssl_mode":        getSetting("ssl_mode", "none"),
 		"ssl_cert_path":   getSetting("ssl_cert_path", ""),
 		"ssl_key_path":    getSetting("ssl_key_path", ""),
@@ -49,24 +57,74 @@ func getSettings(c *gin.Context) {
 		"acme_secret_key": getSetting("acme_secret_key", ""),
 		"acme_token":      getSetting("acme_token", ""),
 		"acme_region_id":  getSetting("acme_region_id", ""),
-		"last_sync_time":  getSetting("last_sync_time", ""),
-		"next_sync_time":  getSetting("next_sync_time", ""),
-		"disable_page_animation": getSetting("disable_page_animation", "false"),
+		"last_sync_time":  getSettingByUser(systemUserID, "last_sync_time", ""),
+		"next_sync_time":  getSettingByUser(systemUserID, "next_sync_time", ""),
+		"disable_page_animation": getSettingByUser(systemUserID, "disable_page_animation", "false"),
+		"multi_user_enabled":      getSetting("multi_user_enabled", "false"),
 	}
 
 	c.JSON(http.StatusOK, gin.H{"settings": settings})
 }
 
 func updateSettings(c *gin.Context) {
+	// 获取当前系统用户 ID
+	systemUserID := 0
+	if id, exists := c.Get("system_user_id"); exists {
+		if uid, ok := id.(int); ok {
+			systemUserID = uid
+		}
+	}
+
 	var req map[string]interface{}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误: " + err.Error()})
 		return
 	}
 
+	// 用户级别的设置（每个用户独立）
+	userSettings := []string{
+		"download_path", "song_format", "quality", "auto_sync", "sync_interval", "sync_unit",
+		"delete_removed", "playlist_format", "resume_downloads", "auto_data_complete",
+		"data_complete_interval", "data_complete_unit", "data_complete_cover",
+		"data_complete_lyrics", "data_complete_artist", "last_sync_time", "next_sync_time",
+		"disable_page_animation",
+	}
+
+	// 全局设置（所有用户共享）
+	globalSettings := []string{
+		"ssl_mode", "ssl_cert_path", "ssl_key_path", "ssl_chain_path",
+		"http_port", "https_port", "ssl_redirect", "acme_provider", "acme_email",
+		"acme_domain", "acme_account_id", "acme_secret_key", "acme_token", "acme_region_id",
+		"multi_user_enabled",
+	}
+
 	for key, value := range req {
 		strValue := fmt.Sprintf("%v", value)
-		db.SetSetting(key, strValue)
+		
+		// 判断是用户级别还是全局设置
+		isUserSetting := false
+		for _, userKey := range userSettings {
+			if key == userKey {
+				isUserSetting = true
+				break
+			}
+		}
+		
+		if isUserSetting {
+			db.SetSettingByUser(systemUserID, key, strValue)
+		} else {
+			// 检查是否是全局设置
+			isGlobalSetting := false
+			for _, globalKey := range globalSettings {
+				if key == globalKey {
+					isGlobalSetting = true
+					break
+				}
+			}
+			if isGlobalSetting {
+				db.SetSetting(key, strValue)
+			}
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "设置已保存"})
@@ -296,6 +354,14 @@ func getACMEPlugins(c *gin.Context) {
 
 func getSetting(key, defaultValue string) string {
 	value, err := db.GetSetting(key)
+	if err != nil || value == "" {
+		return defaultValue
+	}
+	return value
+}
+
+func getSettingByUser(userID int, key, defaultValue string) string {
+	value, err := db.GetSettingByUser(userID, key)
 	if err != nil || value == "" {
 		return defaultValue
 	}

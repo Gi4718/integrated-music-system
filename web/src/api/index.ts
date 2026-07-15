@@ -182,6 +182,27 @@ export const systemAPI = {
   },
   check() {
     return api.get('/system/check')
+  },
+  // 多用户注册
+  userRegister(data: { username: string; password: string }) {
+    return api.post('/system/user/register', data)
+  },
+  // 获取当前用户信息
+  getCurrentUser() {
+    return api.get('/system/me')
+  },
+  // 用户管理（管理员）
+  listUsers() {
+    return api.get('/system/users')
+  },
+  updateUserRole(userId: number, role: string) {
+    return api.post('/system/users/role', { user_id: userId, role })
+  },
+  updateUserPassword(userId: number, newPassword: string) {
+    return api.post('/system/users/password', { user_id: userId, new_password: newPassword })
+  },
+  deleteUser(userId: number) {
+    return api.post('/system/users/delete', { user_id: userId })
   }
 }
 
