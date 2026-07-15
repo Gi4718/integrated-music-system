@@ -44,19 +44,58 @@
       <div class="setting-row">
         <div class="setting-label-col">
           <span class="setting-name">自动同步</span>
-          <span class="setting-desc">开启后将按设定间隔自动同步歌单到本地</span>
+          <span class="setting-desc">开启后将按设定规则自动同步歌单到本地</span>
         </div>
         <div class="setting-control-row">
           <label class="switch">
             <input type="checkbox" v-model="settings.autoSync" />
             <span class="slider"></span>
           </label>
+        </div>
+      </div>
+
+      <div v-if="settings.autoSync" class="setting-row">
+        <div class="setting-label-col">
+          <span class="setting-name">同步模式</span>
+          <span class="setting-desc">选择同步触发方式</span>
+        </div>
+        <div class="setting-control-row">
+          <div class="mode-btns">
+            <button :class="{ active: settings.syncMode === 'interval' }" @click="settings.syncMode = 'interval'">间隔模式</button>
+            <button :class="{ active: settings.syncMode === 'schedule' }" @click="settings.syncMode = 'schedule'">定时模式</button>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="settings.autoSync && settings.syncMode === 'interval'" class="setting-row">
+        <div class="setting-label-col">
+          <span class="setting-name">同步间隔</span>
+          <span class="setting-desc">每隔指定时间同步一次</span>
+        </div>
+        <div class="setting-control-row">
           <span class="control-text">每</span>
           <input type="number" v-model.number="settings.syncInterval" class="number-input" min="1" max="72" />
           <div class="unit-btns">
             <button :class="{ active: settings.syncUnit === 'hour' }" @click="settings.syncUnit = 'hour'">小时</button>
             <button :class="{ active: settings.syncUnit === 'day' }" @click="settings.syncUnit = 'day'">天</button>
           </div>
+        </div>
+      </div>
+
+      <div v-if="settings.autoSync && settings.syncMode === 'schedule'" class="setting-row">
+        <div class="setting-label-col">
+          <span class="setting-name">同步时间</span>
+          <span class="setting-desc">选择星期和时间进行同步</span>
+        </div>
+        <div class="setting-control-row">
+          <div class="weekday-btns">
+            <button v-for="day in weekdays" :key="day.value"
+                    :class="{ active: settings.syncWeekdays.includes(day.value) }"
+                    @click="toggleWeekday(day.value)">
+              {{ day.label }}
+            </button>
+          </div>
+          <input type="time" v-model="settings.syncTime" class="time-input" />
         </div>
       </div>
 
@@ -233,13 +272,13 @@
             <button class="validate-btn" @click="validateSSLCert" :disabled="certValidating">
               {{ certValidating ? '验证中...' : '验证证书' }}
             </button>
-            
+
             <div v-if="certInfo" class="cert-info" :class="{ 'valid': certValid, 'invalid': !certValid }">
               <div class="cert-status">
                 <span class="status-icon">{{ certValid ? '✓' : '✗' }}</span>
                 <span class="status-text">{{ certInfo.message }}</span>
               </div>
-              
+
               <div v-if="certValid && certInfo.subject" class="cert-details">
                 <div class="detail-row">
                   <span class="detail-label">颁发给:</span>
@@ -372,9 +411,6 @@ const certFileInput = ref<HTMLInputElement>()
 const keyFileInput = ref<HTMLInputElement>()
 const chainFileInput = ref<HTMLInputElement>()
 
-// 标记设置是否已加载完成，防止加载时触发自动保存
-const isLoaded = ref(false)
-
 // 分区块保存状态
 const savingDownload = ref(false)
 const downloadSavedTip = ref(false)
@@ -415,8 +451,30 @@ const settings = ref({
   acmeDomain: '',
   acmeFields: {} as Record<string, string>,
   lastSyncTime: '',
-  nextSyncTime: ''
+  nextSyncTime: '',
+  syncMode: 'interval' as 'interval' | 'schedule',
+  syncWeekdays: [] as number[],
+  syncTime: '08:00'
 })
+
+const weekdays = [
+  { value: 0, label: '周日' },
+  { value: 1, label: '周一' },
+  { value: 2, label: '周二' },
+  { value: 3, label: '周三' },
+  { value: 4, label: '周四' },
+  { value: 5, label: '周五' },
+  { value: 6, label: '周六' }
+]
+
+const toggleWeekday = (day: number) => {
+  const index = settings.value.syncWeekdays.indexOf(day)
+  if (index > -1) {
+    settings.value.syncWeekdays.splice(index, 1)
+  } else {
+    settings.value.syncWeekdays.push(day)
+  }
+}
 
 const acmeApplying = ref(false)
 const acmeMessage = ref('')
@@ -566,7 +624,7 @@ const validateSSLCert = async () => {
       cert_path: settings.value.sslCertPath,
       key_path: settings.value.sslKeyPath
     })
-    
+
     certInfo.value = res.data
     certValid.value = res.data.valid
 
@@ -631,6 +689,17 @@ const loadSettings = async () => {
       }
       settings.value.lastSyncTime = s.last_sync_time || ''
       settings.value.nextSyncTime = s.next_sync_time || ''
+      settings.value.syncMode = s.sync_mode === 'schedule' ? 'schedule' : 'interval'
+      if (s.sync_weekdays) {
+        try {
+          settings.value.syncWeekdays = typeof s.sync_weekdays === 'string'
+            ? JSON.parse(s.sync_weekdays)
+            : s.sync_weekdays
+        } catch {
+          settings.value.syncWeekdays = []
+        }
+      }
+      settings.value.syncTime = s.sync_time || '08:00'
       const savedAnim = localStorage.getItem('disablePageAnimation')
       if (savedAnim !== null) {
         disablePageAnimation.value = savedAnim === 'true'
@@ -638,9 +707,11 @@ const loadSettings = async () => {
         disablePageAnimation.value = String(s.disable_page_animation) === 'true' || s.disable_page_animation === true
       }
     }
+
+    if (settings.value.sslCertPath && settings.value.sslKeyPath) {
+      await validateSSLCert()
+    }
   } catch {}
-  // 标记设置已加载完成，允许自动保存
-  isLoaded.value = true
 }
 
 // 保存本地下载配置
@@ -654,6 +725,7 @@ const saveDownloadSettings = async () => {
     }
     await settingsAPI.updateSettings(data)
     downloadSavedTip.value = true
+    await loadSettings()
     setTimeout(() => { downloadSavedTip.value = false }, 2000)
   } catch {
     ElMessage.error('保存失败')
@@ -671,6 +743,9 @@ const saveSyncSettings = async () => {
       auto_sync: settings.value.autoSync.toString(),
       sync_interval: settings.value.syncInterval.toString(),
       sync_unit: settings.value.syncUnit,
+      sync_mode: settings.value.syncMode,
+      sync_weekdays: JSON.stringify(settings.value.syncWeekdays),
+      sync_time: settings.value.syncTime,
       delete_removed: settings.value.deleteRemoved.toString(),
       playlist_format: settings.value.playlistFormat,
       quality: settings.value.quality,
@@ -682,6 +757,7 @@ const saveSyncSettings = async () => {
     }
     await settingsAPI.updateSettings(data)
     syncSavedTip.value = true
+    await loadSettings()
     setTimeout(() => { syncSavedTip.value = false }, 2000)
   } catch {
     ElMessage.error('保存失败')
@@ -721,6 +797,7 @@ const saveSSLSettings = async () => {
     }
     await settingsAPI.updateSettings(data)
     sslSavedTip.value = true
+    await loadSettings()
     setTimeout(() => { sslSavedTip.value = false }, 2000)
   } catch {
     ElMessage.error('保存失败')
@@ -740,6 +817,7 @@ const savePersonalization = async () => {
     // 同步到 localStorage 供 App.vue 读取
     localStorage.setItem('disablePageAnimation', disablePageAnimation.value.toString())
     personalSavedTip.value = true
+    await loadSettings()
     setTimeout(() => { personalSavedTip.value = false }, 2000)
   } catch {
     ElMessage.error('保存失败')
@@ -767,6 +845,22 @@ const applyACME = async () => {
     acmeSuccess.value = true
     settings.value.sslCertPath = res.data.cert_path || ''
     settings.value.sslKeyPath = res.data.key_path || ''
+
+    await validateSSLCert()
+
+    if (certValid.value) {
+      await saveSSLSettings()
+
+      try {
+        await settingsAPI.reloadSSL()
+        ElMessage.success('证书申请成功，HTTPS服务已启用')
+      } catch {
+        ElMessage.success('证书申请成功，HTTPS服务将在重启后生效')
+      }
+    } else {
+      acmeSuccess.value = false
+      acmeMessage.value = '证书申请成功但验证失败'
+    }
   } catch (e: any) {
     acmeMessage.value = e?.response?.data?.error || '证书申请失败'
     acmeSuccess.value = false
@@ -791,54 +885,6 @@ const syncPluginFields = () => {
 }
 
 watch(pluginFieldValues, syncPluginFields, { deep: true })
-
-// 自动保存功能：监听设置变化并自动保存
-let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
-
-const autoSave = async () => {
-  // 如果设置尚未加载完成，不触发自动保存
-  if (!isLoaded.value) return
-
-  if (autoSaveTimer) clearTimeout(autoSaveTimer)
-  autoSaveTimer = setTimeout(async () => {
-    try {
-      const data = {
-        download_path: settings.value.downloadPath,
-        song_format: settings.value.songFormat,
-        auto_sync: settings.value.autoSync.toString(),
-        sync_interval: settings.value.syncInterval.toString(),
-        sync_unit: settings.value.syncUnit,
-        delete_removed: settings.value.deleteRemoved.toString(),
-        playlist_format: settings.value.playlistFormat,
-        quality: settings.value.quality,
-        resume_downloads: settings.value.resumeDownloads.toString(),
-        auto_data_complete: settings.value.autoDataComplete.toString(),
-        data_complete_interval: settings.value.dataCompleteInterval.toString(),
-        data_complete_unit: settings.value.dataCompleteUnit,
-        data_complete_cover: settings.value.dataCompleteCover.toString(),
-        data_complete_lyrics: settings.value.dataCompleteLyrics.toString(),
-        data_complete_artist: settings.value.dataCompleteArtist.toString(),
-        ssl_mode: settings.value.sslMode,
-        ssl_cert_path: settings.value.sslCertPath,
-        ssl_key_path: settings.value.sslKeyPath,
-        ssl_chain_path: settings.value.sslChainPath,
-        http_port: settings.value.httpPort.toString(),
-        https_port: settings.value.httpsPort.toString(),
-        ssl_redirect: settings.value.sslRedirect.toString(),
-        disable_page_animation: disablePageAnimation.value.toString()
-      }
-      await settingsAPI.updateSettings(data)
-      // 同步到 localStorage
-      localStorage.setItem('disablePageAnimation', disablePageAnimation.value.toString())
-    } catch (error) {
-      console.error('自动保存设置失败:', error)
-    }
-  }, 500)
-}
-
-// 监听所有设置变化
-watch(() => settings.value, autoSave, { deep: true })
-watch(disablePageAnimation, autoSave)
 </script>
 
 <style scoped>
@@ -1016,6 +1062,65 @@ watch(disablePageAnimation, autoSave)
   background: #FFFA00;
   border-color: #FFFA00;
   color: #000;
+}
+
+.mode-btns {
+  display: flex;
+}
+
+.mode-btns button {
+  padding: 4px 14px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.mode-btns button:first-child {
+  border-radius: 4px 0 0 4px;
+}
+
+.mode-btns button:last-child {
+  border-radius: 0 4px 4px 0;
+  border-left: none;
+}
+
+.mode-btns button.active {
+  background: #FFFA00;
+  border-color: #FFFA00;
+  color: #000;
+}
+
+.weekday-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.weekday-btns button {
+  padding: 4px 10px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.weekday-btns button.active {
+  background: #FFFA00;
+  border-color: #FFFA00;
+  color: #000;
+}
+
+.time-input {
+  padding: 4px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-color);
+  color: var(--text-primary);
+  font-size: 14px;
 }
 
 .checkbox-row {
