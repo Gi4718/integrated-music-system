@@ -13,7 +13,6 @@ import (
 )
 
 var jwtSecret = []byte("endfield-music-secret-key-2026")
-var dbConn = db.GetDB()
 
 type SystemLoginRequest struct {
 	Username string `json:"username" binding:"required"`
@@ -47,7 +46,7 @@ func Register(c *gin.Context) {
 
 	// 创建首个系统用户（自动为 admin）
 	hash := hashPassword(req.Password)
-	_, err = dbConn.Exec(
+	_, err = db.GetDB().Exec(
 		"INSERT INTO system_users (username, password_hash, role, created_at, failed_attempts) VALUES (?, ?, 'admin', ?, 0)",
 		req.Username, hash, time.Now(),
 	)
