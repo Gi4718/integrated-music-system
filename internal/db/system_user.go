@@ -9,16 +9,17 @@ import (
 )
 
 type SystemUser struct {
-	ID           int
-	Username     string
-	PasswordHash string
-	CreatedAt    time.Time
-	LastLoginAt  time.Time
+	ID             int
+	Username       string
+	PasswordHash   string
+	Role           string
+	CreatedAt      time.Time
+	LastLoginAt    time.Time
 	FailedAttempts int
-	LockedUntil  time.Time
+	LockedUntil    time.Time
 }
 
-// CreateSystemUser 创建系统用户
+// CreateSystemUser 创建系统用户（第一个用户为管理员）
 func CreateSystemUser(username, password string) error {
 	// 检查是否已有用户
 	var count int
@@ -33,8 +34,9 @@ func CreateSystemUser(username, password string) error {
 	// 密码加密
 	hash := hashPassword(password)
 
+	// 第一个用户为管理员
 	_, err = dbConn.Exec(
-		"INSERT INTO system_users (username, password_hash, created_at, failed_attempts) VALUES (?, ?, ?, 0)",
+		"INSERT INTO system_users (username, password_hash, role, created_at, failed_attempts) VALUES (?, ?, 'admin', ?, 0)",
 		username, hash, time.Now(),
 	)
 	return err
@@ -47,9 +49,9 @@ func AuthenticateSystemUser(username, password string) (*SystemUser, error) {
 	var lockedUntil sql.NullTime
 
 	err := dbConn.QueryRow(
-		"SELECT id, username, password_hash, created_at, last_login_at, failed_attempts, locked_until FROM system_users WHERE username = ?",
+		"SELECT id, username, password_hash, role, created_at, last_login_at, failed_attempts, locked_until FROM system_users WHERE username = ?",
 		username,
-	).Scan(&user.ID, &user.Username, &user.PasswordHash, &user.CreatedAt, &lastLoginAt, &user.FailedAttempts, &lockedUntil)
+	).Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Role, &user.CreatedAt, &lastLoginAt, &user.FailedAttempts, &lockedUntil)
 	if lastLoginAt.Valid {
 		user.LastLoginAt = lastLoginAt.Time
 	}
@@ -210,6 +212,28 @@ func CreateSystemUserWithRole(username, password, role string) error {
 		username, hash, role, time.Now(),
 	)
 	return err
+}
+
+// GetSystemUserByUsername 根据用户名获取系统用户
+func GetSystemUserByUsername(username string) (*SystemUser, error) {
+	var user SystemUser
+	var lastLoginAt sql.NullTime
+	var lockedUntil sql.NullTime
+
+	err := dbConn.QueryRow(
+		"SELECT id, username, password_hash, role, created_at, last_login_at, failed_attempts, locked_until FROM system_users WHERE username = ?",
+		username,
+	).Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Role, &user.CreatedAt, &lastLoginAt, &user.FailedAttempts, &lockedUntil)
+	if err != nil {
+		return nil, err
+	}
+	if lastLoginAt.Valid {
+		user.LastLoginAt = lastLoginAt.Time
+	}
+	if lockedUntil.Valid {
+		user.LockedUntil = lockedUntil.Time
+	}
+	return &user, nil
 }
 
 // hashPassword 使用SHA256加密密码
