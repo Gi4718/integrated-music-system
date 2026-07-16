@@ -1,0 +1,22 @@
+services:
+  endfield-music-feature:
+    image: yinluo/integrated-music-system:feature
+    container_name: endfield-music-feature
+    ports:
+      - "33552:33550"  # HTTP (+2)
+      - "33553:33551"  # HTTPS (+2)
+    volumes:
+      - ./data-feature/config:/data/config
+      - ./data-feature/ssl:/data/ssl
+      - ./data-feature/downloads:/data/downloads
+      - ./data-feature/db:/data/db
+      - /vol1/1000/music:/music
+    environment:
+      - TZ=Asia/Shanghai
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:33550/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
