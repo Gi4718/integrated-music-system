@@ -33,31 +33,35 @@
             </div>
 
             <div class="user-actions">
-              <button
-                v-if="user.id !== currentUserId"
-                class="action-btn role-btn"
-                @click="toggleRole(user)"
-                :title="user.role === 'admin' ? '降级为普通用户' : '提升为管理员'"
-              >
-                {{ user.role === 'admin' ? '降级' : '提升' }}
-              </button>
+              <!-- 首位管理员（id=1）不可被降级、改密、删除 -->
+              <template v-if="user.id !== 1">
+                <button
+                  v-if="user.id !== currentUserId"
+                  class="action-btn role-btn"
+                  @click="toggleRole(user)"
+                  :title="user.role === 'admin' ? '降级为普通用户' : '提升为管理员'"
+                >
+                  {{ user.role === 'admin' ? '降级' : '提升' }}
+                </button>
 
-              <button
-                v-if="user.id !== currentUserId"
-                class="action-btn pwd-btn"
-                @click="showPasswordDialog(user)"
-              >
-                改密
-              </button>
+                <button
+                  v-if="user.id !== currentUserId"
+                  class="action-btn pwd-btn"
+                  @click="showPasswordDialog(user)"
+                >
+                  改密
+                </button>
 
-              <button
-                v-if="user.id !== currentUserId"
-                class="action-btn delete-btn"
-                @click="confirmDelete(user)"
-              >
-                删除
-              </button>
+                <button
+                  v-if="user.id !== currentUserId"
+                  class="action-btn delete-btn"
+                  @click="confirmDelete(user)"
+                >
+                  删除
+                </button>
+              </template>
 
+              <span v-if="user.id === 1" class="system-tag">系统管理员</span>
               <span v-if="user.id === currentUserId" class="current-tag">当前账号</span>
             </div>
           </div>
@@ -115,6 +119,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useSystemAuthStore } from '../stores/systemAuth'
+import { systemAPI, settingsAPI } from '../api'
 import { ElMessage } from 'element-plus'
 
 const systemAuth = useSystemAuthStore()
@@ -161,27 +166,20 @@ const deleteDialog = ref({
 
 const loadUsers = async () => {
   try {
-    const res = await fetch('/api/system/users', {
-      headers: { Authorization: `Bearer ${systemAuth.token}` }
-    })
-    if (res.ok) {
-      const data = await res.json()
-      users.value = data.users || []
+    const res = await systemAPI.listUsers()
+    if (res.data.users) {
+      users.value = res.data.users
     }
   } catch (e) {
     console.error('加载用户列表失败', e)
+    ElMessage.error('加载用户列表失败')
   }
 }
 
 const loadMultiUserSetting = async () => {
   try {
-    const res = await fetch('/api/settings', {
-      headers: { Authorization: `Bearer ${systemAuth.token}` }
-    })
-    if (res.ok) {
-      const data = await res.json()
-      multiUserEnabled.value = data.settings?.multi_user_enabled === true
-    }
+    const res = await settingsAPI.getSettings()
+    multiUserEnabled.value = res.data.settings?.multi_user_enabled === 'true'
   } catch (e) {
     console.error('加载设置失败', e)
   }
@@ -189,14 +187,7 @@ const loadMultiUserSetting = async () => {
 
 const toggleMultiUser = async () => {
   try {
-    await fetch('/api/settings', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${systemAuth.token}`
-      },
-      body: JSON.stringify({ multi_user_enabled: multiUserEnabled.value.toString() })
-    })
+    await settingsAPI.updateSettings({ multi_user_enabled: multiUserEnabled.value.toString() })
     ElMessage.success(multiUserEnabled.value ? '已开启多用户注册' : '已关闭多用户注册')
   } catch {
     ElMessage.error('保存失败')
@@ -207,23 +198,13 @@ const toggleMultiUser = async () => {
 const toggleRole = async (user: User) => {
   const newRole = user.role === 'admin' ? 'user' : 'admin'
   try {
-    const res = await fetch('/api/system/users/role', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${systemAuth.token}`
-      },
-      body: JSON.stringify({ user_id: user.id, role: newRole })
-    })
-    if (res.ok) {
+    const res = await systemAPI.updateUserRole(user.id, newRole)
+    if (res.data.message) {
       ElMessage.success(`已将 ${user.username} ${newRole === 'admin' ? '提升为管理员' : '降级为普通用户'}`)
       await loadUsers()
-    } else {
-      const data = await res.json()
-      ElMessage.error(data.error || '操作失败')
     }
-  } catch {
-    ElMessage.error('操作失败')
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.error || '操作失败')
   }
 }
 
@@ -249,26 +230,13 @@ const submitPasswordChange = async () => {
   }
   passwordDialog.value.submitting = true
   try {
-    const res = await fetch('/api/system/users/password', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${systemAuth.token}`
-      },
-      body: JSON.stringify({
-        user_id: passwordDialog.value.userId,
-        password: passwordDialog.value.newPassword
-      })
-    })
-    if (res.ok) {
+    const res = await systemAPI.updateUserPassword(passwordDialog.value.userId, passwordDialog.value.newPassword)
+    if (res.data.message) {
       ElMessage.success('密码已修改')
       closePasswordDialog()
-    } else {
-      const data = await res.json()
-      ElMessage.error(data.error || '修改失败')
     }
-  } catch {
-    ElMessage.error('修改失败')
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.error || '修改失败')
   } finally {
     passwordDialog.value.submitting = false
   }
@@ -290,24 +258,14 @@ const closeDeleteDialog = () => {
 const submitDelete = async () => {
   deleteDialog.value.submitting = true
   try {
-    const res = await fetch('/api/system/users/delete', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${systemAuth.token}`
-      },
-      body: JSON.stringify({ user_id: deleteDialog.value.userId })
-    })
-    if (res.ok) {
+    const res = await systemAPI.deleteUser(deleteDialog.value.userId)
+    if (res.data.message) {
       ElMessage.success('用户已删除')
       closeDeleteDialog()
       await loadUsers()
-    } else {
-      const data = await res.json()
-      ElMessage.error(data.error || '删除失败')
     }
-  } catch {
-    ElMessage.error('删除失败')
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.error || '删除失败')
   } finally {
     deleteDialog.value.submitting = false
   }
@@ -549,6 +507,16 @@ onMounted(() => {
   border: 1px solid #4caf50;
   border-radius: 4px;
   font-size: 12px;
+}
+
+.system-tag {
+  padding: 4px 10px;
+  background: rgba(255, 215, 0, 0.2);
+  color: #FFD700;
+  border: 1px solid #FFD700;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .empty-state {

@@ -46,7 +46,7 @@ func GetDB() *sql.DB {
 
 func initTables() error {
 	tables := []string{
-		// 用户信息表
+		// 用户信息表（支持多用户系统）
 		`CREATE TABLE IF NOT EXISTS users (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			user_id INTEGER UNIQUE NOT NULL,
@@ -54,6 +54,7 @@ func initTables() error {
 			avatar_url TEXT,
 			cookie TEXT,
 			cookie_expires DATETIME,
+			system_user_id INTEGER DEFAULT 0,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
@@ -95,7 +96,7 @@ func initTables() error {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 
-		// 设置表
+		// 设置表（支持多用户）
 		`CREATE TABLE IF NOT EXISTS settings (
 			key TEXT NOT NULL,
 			value TEXT,
@@ -182,7 +183,6 @@ func initTables() error {
 	}
 
 	// 特殊迁移：settings 表需要重建以支持 user_id
-	// 检查是否需要迁移 settings 表
 	var hasUserID bool
 	err := dbConn.QueryRow("SELECT COUNT(*) FROM pragma_table_info('settings') WHERE name='user_id'").Scan(&hasUserID)
 	if err == nil && !hasUserID {

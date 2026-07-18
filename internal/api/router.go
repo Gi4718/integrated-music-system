@@ -105,6 +105,7 @@ func SetupRouter(cfg *config.Config) *gin.Engine {
 		api.POST("/system/register", Register)
 		api.POST("/system/login", SystemLogin)
 		api.GET("/system/check", CheckSystemUser)
+		api.POST("/system/user/register", RegisterUser) // 多用户注册
 
 		// 网易云认证路由（无需 JWT 中间件，使用数据库 cookie 认证）
 		auth := api.Group("/auth")
@@ -141,6 +142,16 @@ func SetupRouter(cfg *config.Config) *gin.Engine {
 		authorized := api.Group("")
 		authorized.Use(AuthMiddleware())
 		{
+			// 系统用户管理
+			system := authorized.Group("/system")
+			{
+				system.GET("/me", GetCurrentUser)
+				system.GET("/users", ListUsers)
+				system.POST("/users/role", UpdateUserRole)
+				system.POST("/users/password", UpdateUserPassword)
+				system.POST("/users/delete", DeleteUser)
+			}
+
 			// 推荐接口
 			recommend := authorized.Group("/recommend")
 			{
