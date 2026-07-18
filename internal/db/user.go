@@ -7,14 +7,27 @@ import (
 )
 
 func GetCurrentUser() (*model.User, error) {
-	query := `SELECT id, user_id, nickname, avatar_url, cookie, cookie_expires, created_at, updated_at, COALESCE(system_user_id, 0)
-			  FROM users ORDER BY updated_at DESC LIMIT 1`
+	// 先检查 system_user_id 列是否存在
+	var hasColumn bool
+	err := dbConn.QueryRow("SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='system_user_id'").Scan(&hasColumn)
+	if err != nil {
+		hasColumn = false
+	}
+
+	var query string
+	if hasColumn {
+		query = `SELECT id, user_id, nickname, avatar_url, cookie, cookie_expires, created_at, updated_at, COALESCE(system_user_id, 0)
+				  FROM users ORDER BY updated_at DESC LIMIT 1`
+	} else {
+		query = `SELECT id, user_id, nickname, avatar_url, cookie, cookie_expires, created_at, updated_at, 0
+				  FROM users ORDER BY updated_at DESC LIMIT 1`
+	}
 
 	row := dbConn.QueryRow(query)
 
 	var user model.User
 	var systemUserID int
-	err := row.Scan(
+	err = row.Scan(
 		&user.ID,
 		&user.UserID,
 		&user.Nickname,
