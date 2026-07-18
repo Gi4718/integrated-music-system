@@ -53,6 +53,7 @@ type DownloadTask struct {
 	DownloadedSize int64
 	Phase         string
 	TaskServiceID string // 关联的 TaskService 任务ID
+	SystemUserID  int    // 系统用户ID，用于路径隔离
 }
 
 // PlaylistPhase 歌单阶段追踪
@@ -166,9 +167,18 @@ func (e *Engine) recoverIncompleteTasks(ctx context.Context) {
 			formattedName := strings.ReplaceAll(songFormat, "{songName}", d.SongName)
 			formattedName = strings.ReplaceAll(formattedName, "{artist}", d.Artist)
 			filename := sanitizeFilename(formattedName) + ext
-			baseDir := "/music"
+			
+			// 获取用户名用于路径隔离
+			username := "default"
+			if d.SystemUserID > 0 {
+				if user, err := db.GetSystemUserByID(d.SystemUserID); err == nil && user != nil {
+					username = sanitizeFilename(user.Username)
+				}
+			}
+			
+			baseDir := filepath.Join("/music", username)
 			if d.SubDir != "" {
-				baseDir = filepath.Join("/music", d.SubDir)
+				baseDir = filepath.Join("/music", username, d.SubDir)
 			}
 			computedPath := filepath.Join(baseDir, filename)
 
@@ -341,12 +351,12 @@ func (e *Engine) metadataWorkerLoop(ctx context.Context) {
 }
 
 // AddTask 添加下载任务
-func (e *Engine) AddTask(songID int, quality string) (int, error) {
-	return e.AddTaskWithSubDir(songID, quality, "", 0)
+func (e *Engine) AddTask(songID int, quality string, systemUserID int) (int, error) {
+	return e.AddTaskWithSubDir(songID, quality, "", 0, systemUserID)
 }
 
 // AddTaskWithSubDir 添加带子目录的下载任务
-func (e *Engine) AddTaskWithSubDir(songID int, quality string, subDir string, playlistID int) (int, error) {
+func (e *Engine) AddTaskWithSubDir(songID int, quality string, subDir string, playlistID int, systemUserID int) (int, error) {
 	e.rateLimiter.Wait()
 
 	body, err := e.netease.GetSongDetail(songID)
@@ -398,6 +408,7 @@ func (e *Engine) AddTaskWithSubDir(songID int, quality string, subDir string, pl
 		Status:        "pending",
 		CreatedAt:     time.Now(),
 		TaskServiceID: taskServiceID,
+		SystemUserID:  systemUserID,
 	}
 
 	e.mu.Lock()
@@ -421,8 +432,8 @@ func (e *Engine) AddTaskWithSubDir(songID int, quality string, subDir string, pl
 }
 
 // AddPlaylistTask 添加歌单下载任务（两阶段）
-func (e *Engine) AddPlaylistTask(playlistID int, quality string) ([]int, string, string, error) {
-	fmt.Printf("[AddPlaylistTask] starting for playlistID=%d, quality=%s\n", playlistID, quality)
+func (e *Engine) AddPlaylistTask(playlistID int, quality string, systemUserID int) ([]int, string, string, error) {
+	fmt.Printf("[AddPlaylistTask] starting for playlistID=%d, quality=%s, systemUserID=%d\n", playlistID, quality, systemUserID)
 	
 	e.rateLimiter.Wait()
 	fmt.Printf("[AddPlaylistTask] rate limiter passed\n")
@@ -536,7 +547,7 @@ func (e *Engine) AddPlaylistTask(playlistID int, quality string) ([]int, string,
 	e.mu.Unlock()
 
 	// 异步执行扫描
-	go e.asyncScanAndDownload(playlistID, playlistName, trackIDs, quality, scanTask)
+	go e.asyncScanAndDownload(playlistID, playlistName, trackIDs, quality, scanTask, systemUserID)
 
 	return nil, "", "", nil
 }
@@ -550,7 +561,7 @@ type SongInfo struct {
 }
 
 // asyncScanAndDownload 异步执行扫描和下载
-func (e *Engine) asyncScanAndDownload(playlistID int, playlistName string, trackIDs []int, quality string, scanTask *service.Task) {
+func (e *Engine) asyncScanAndDownload(playlistID int, playlistName string, trackIDs []int, quality string, scanTask *service.Task, systemUserID int) {
 	ctx := context.Background()
 	
 	// 执行扫描
@@ -594,17 +605,18 @@ func (e *Engine) asyncScanAndDownload(playlistID int, playlistName string, track
 		}
 		
 		virtualTask := &DownloadTask{
-			SongID:     songID,
-			SongName:   history.SongName,
-			Artist:     history.Artist,
-			Album:      history.Album,
-			Quality:    history.Quality,
-			SubDir:     playlistName,
-			PlaylistID: playlistID,
-			FilePath:   history.FilePath,
-			Status:     "completed",
-			Phase:      "download",
-			CreatedAt:  time.Now(),
+			SongID:       songID,
+			SongName:     history.SongName,
+			Artist:       history.Artist,
+			Album:        history.Album,
+			Quality:      history.Quality,
+			SubDir:       playlistName,
+			PlaylistID:   playlistID,
+			FilePath:     history.FilePath,
+			Status:       "completed",
+			Phase:        "download",
+			CreatedAt:    time.Now(),
+			SystemUserID: systemUserID,
 		}
 		e.mu.Lock()
 		virtualTask.ID = len(e.tasks) + 1
@@ -619,10 +631,18 @@ func (e *Engine) asyncScanAndDownload(playlistID int, playlistName string, track
 			continue
 		}
 		
+		// 获取用户名用于路径隔离
+		username := "default"
+		if systemUserID > 0 {
+			if user, err := db.GetSystemUserByID(systemUserID); err == nil && user != nil {
+				username = sanitizeFilename(user.Username)
+			}
+		}
+		
 		// 复制文件到目标目录
-		targetDir := "/music"
+		targetDir := filepath.Join("/music", username)
 		if playlistName != "" {
-			targetDir = filepath.Join("/music", playlistName)
+			targetDir = filepath.Join("/music", username, playlistName)
 		}
 		os.MkdirAll(targetDir, 0755)
 		
@@ -658,17 +678,18 @@ func (e *Engine) asyncScanAndDownload(playlistID int, playlistName string, track
 		})
 		
 		virtualTask := &DownloadTask{
-			SongID:     songID,
-			SongName:   history.SongName,
-			Artist:     history.Artist,
-			Album:      history.Album,
-			Quality:    history.Quality,
-			SubDir:     playlistName,
-			PlaylistID: playlistID,
-			FilePath:   targetPath,
-			Status:     "completed",
-			Phase:      "download",
-			CreatedAt:  time.Now(),
+			SongID:       songID,
+			SongName:     history.SongName,
+			Artist:       history.Artist,
+			Album:        history.Album,
+			Quality:      history.Quality,
+			SubDir:       playlistName,
+			PlaylistID:   playlistID,
+			FilePath:     targetPath,
+			Status:       "completed",
+			Phase:        "download",
+			CreatedAt:    time.Now(),
+			SystemUserID: systemUserID,
 		}
 		e.mu.Lock()
 		virtualTask.ID = len(e.tasks) + 1
@@ -1039,9 +1060,17 @@ func (e *Engine) executeTask(ctx context.Context, task *DownloadTask) {
 	formattedName = strings.ReplaceAll(formattedName, "{artist}", task.Artist)
 	filename := sanitizeFilename(formattedName) + ext
 
-	baseDir := "/music"
+	// 获取用户名用于路径隔离
+	username := "default"
+	if task.SystemUserID > 0 {
+		if user, err := db.GetSystemUserByID(task.SystemUserID); err == nil && user != nil {
+			username = sanitizeFilename(user.Username)
+		}
+	}
+	
+	baseDir := filepath.Join("/music", username)
 	if task.SubDir != "" {
-		baseDir = filepath.Join("/music", task.SubDir)
+		baseDir = filepath.Join("/music", username, task.SubDir)
 		if err := os.MkdirAll(baseDir, 0755); err != nil {
 			e.failTask(task, fmt.Sprintf("创建目录失败: %v", err))
 			e.checkPlaylistPhaseComplete(task.PlaylistID)

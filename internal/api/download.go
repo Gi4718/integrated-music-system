@@ -22,9 +22,12 @@ func downloadSong(c *gin.Context) {
 		req.Quality = "high"
 	}
 
+	// 获取当前系统用户 ID
+	systemUserID := getSystemUserID(c)
+
 	// 从数据库获取下载引擎实例（通过全局变量或依赖注入）
 	// 这里简化处理，直接返回任务已创建
-	taskID, err := getDownloadEngine().AddTask(req.SongID, req.Quality)
+	taskID, err := getDownloadEngine().AddTask(req.SongID, req.Quality, systemUserID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -50,7 +53,10 @@ func downloadPlaylist(c *gin.Context) {
 		req.Quality = "high"
 	}
 
-	taskIDs, downloadTaskID, metadataTaskID, err := getDownloadEngine().AddPlaylistTask(req.PlaylistID, req.Quality)
+	// 获取当前系统用户 ID
+	systemUserID := getSystemUserID(c)
+
+	taskIDs, downloadTaskID, metadataTaskID, err := getDownloadEngine().AddPlaylistTask(req.PlaylistID, req.Quality, systemUserID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
