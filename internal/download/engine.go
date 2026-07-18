@@ -159,7 +159,13 @@ func (e *Engine) recoverIncompleteTasks(ctx context.Context) {
 			if d.Quality == "lossless" {
 				ext = ".flac"
 			}
-			filename := sanitizeFilename(fmt.Sprintf("%s - %s", d.Artist, d.SongName)) + ext
+			songFormat, _ := db.GetSetting("song_format")
+			if songFormat == "" {
+				songFormat = "{songName} - {artist}"
+			}
+			formattedName := strings.ReplaceAll(songFormat, "{songName}", d.SongName)
+			formattedName = strings.ReplaceAll(formattedName, "{artist}", d.Artist)
+			filename := sanitizeFilename(formattedName) + ext
 			baseDir := "/music"
 			if d.SubDir != "" {
 				baseDir = filepath.Join("/music", d.SubDir)
@@ -621,7 +627,13 @@ func (e *Engine) asyncScanAndDownload(playlistID int, playlistName string, track
 		os.MkdirAll(targetDir, 0755)
 		
 		ext := filepath.Ext(history.FilePath)
-		filename := sanitizeFilename(fmt.Sprintf("%s - %s", history.Artist, history.SongName)) + ext
+		songFormat, _ := db.GetSetting("song_format")
+		if songFormat == "" {
+			songFormat = "{songName} - {artist}"
+		}
+		formattedName := strings.ReplaceAll(songFormat, "{songName}", history.SongName)
+		formattedName = strings.ReplaceAll(formattedName, "{artist}", history.Artist)
+		filename := sanitizeFilename(formattedName) + ext
 		targetPath := filepath.Join(targetDir, filename)
 		
 		// 复制文件
@@ -858,7 +870,13 @@ func (e *Engine) scanPlaylistSongs(ctx context.Context, trackIDs []int, quality,
 		if quality == "lossless" {
 			ext = ".flac"
 		}
-		filename := sanitizeFilename(fmt.Sprintf("%s - %s", artist, songName)) + ext
+		songFormat, _ := db.GetSetting("song_format")
+		if songFormat == "" {
+			songFormat = "{songName} - {artist}"
+		}
+		formattedName := strings.ReplaceAll(songFormat, "{songName}", songName)
+		formattedName = strings.ReplaceAll(formattedName, "{artist}", artist)
+		filename := sanitizeFilename(formattedName) + ext
 		targetPath := filepath.Join(targetDir, filename)
 		
 		if info, err := os.Stat(targetPath); err == nil {
@@ -1012,7 +1030,14 @@ func (e *Engine) executeTask(ctx context.Context, task *DownloadTask) {
 		ext = ".flac"
 	}
 
-	filename := sanitizeFilename(fmt.Sprintf("%s - %s", task.Artist, task.SongName)) + ext
+	// 从设置读取文件名格式，默认 {songName} - {artist}
+	songFormat, _ := db.GetSetting("song_format")
+	if songFormat == "" {
+		songFormat = "{songName} - {artist}"
+	}
+	formattedName := strings.ReplaceAll(songFormat, "{songName}", task.SongName)
+	formattedName = strings.ReplaceAll(formattedName, "{artist}", task.Artist)
+	filename := sanitizeFilename(formattedName) + ext
 
 	baseDir := "/music"
 	if task.SubDir != "" {
