@@ -74,11 +74,17 @@ func SystemLogin(c *gin.Context) {
 		return
 	}
 
+	// 获取用户实际角色（从数据库读取）
+	userRole := user.Role
+	if userRole == "" {
+		userRole = "user"
+	}
+
 	// 生成JWT token
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"user_id":  user.ID,
 		"username": user.Username,
-		"role":     "admin",
+		"role":     userRole,
 		"exp":      time.Now().Add(24 * time.Hour).Unix(),
 	})
 
@@ -91,7 +97,7 @@ func SystemLogin(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"token":    tokenString,
 		"username": user.Username,
-		"role":     "admin",
+		"role":     userRole,
 	})
 }
 

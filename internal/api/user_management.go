@@ -85,6 +85,12 @@ func UpdateUserRole(c *gin.Context) {
 		return
 	}
 
+	// 首位管理员（id=1）不可被降级
+	if req.UserID == 1 && req.Role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "首位管理员不可被降级"})
+		return
+	}
+
 	if err := db.UpdateUserRole(req.UserID, req.Role); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新角色失败"})
 		return
@@ -155,6 +161,12 @@ func DeleteUser(c *gin.Context) {
 	// 不能删除自己
 	if req.UserID == currentUserID {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "不能删除自己"})
+		return
+	}
+
+	// 首位管理员（id=1）不可被删除
+	if req.UserID == 1 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "首位管理员不可被删除"})
 		return
 	}
 

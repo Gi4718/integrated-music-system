@@ -33,31 +33,35 @@
             </div>
 
             <div class="user-actions">
-              <button
-                v-if="user.id !== currentUserId"
-                class="action-btn role-btn"
-                @click="toggleRole(user)"
-                :title="user.role === 'admin' ? '降级为普通用户' : '提升为管理员'"
-              >
-                {{ user.role === 'admin' ? '降级' : '提升' }}
-              </button>
+              <!-- 首位管理员（id=1）不可被降级、改密、删除 -->
+              <template v-if="user.id !== 1">
+                <button
+                  v-if="user.id !== currentUserId"
+                  class="action-btn role-btn"
+                  @click="toggleRole(user)"
+                  :title="user.role === 'admin' ? '降级为普通用户' : '提升为管理员'"
+                >
+                  {{ user.role === 'admin' ? '降级' : '提升' }}
+                </button>
 
-              <button
-                v-if="user.id !== currentUserId"
-                class="action-btn pwd-btn"
-                @click="showPasswordDialog(user)"
-              >
-                改密
-              </button>
+                <button
+                  v-if="user.id !== currentUserId"
+                  class="action-btn pwd-btn"
+                  @click="showPasswordDialog(user)"
+                >
+                  改密
+                </button>
 
-              <button
-                v-if="user.id !== currentUserId"
-                class="action-btn delete-btn"
-                @click="confirmDelete(user)"
-              >
-                删除
-              </button>
+                <button
+                  v-if="user.id !== currentUserId"
+                  class="action-btn delete-btn"
+                  @click="confirmDelete(user)"
+                >
+                  删除
+                </button>
+              </template>
 
+              <span v-if="user.id === 1" class="system-tag">系统管理员</span>
               <span v-if="user.id === currentUserId" class="current-tag">当前账号</span>
             </div>
           </div>
@@ -503,6 +507,16 @@ onMounted(() => {
   border: 1px solid #4caf50;
   border-radius: 4px;
   font-size: 12px;
+}
+
+.system-tag {
+  padding: 4px 10px;
+  background: rgba(255, 215, 0, 0.2);
+  color: #FFD700;
+  border: 1px solid #FFD700;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .empty-state {
