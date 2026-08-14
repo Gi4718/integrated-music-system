@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -573,7 +574,17 @@ func (e *Engine) asyncScanAndDownload(playlistID int, playlistName string, track
 	remainingCount := len(remainingInfos)
 	
 	fmt.Printf("[asyncScanAndDownload] scan complete: %d remaining, %d skipped, %d copied\n", remainingCount, skippedCount, copiedCount)
-	
+
+	// 检查是否启用"删除已移除歌曲"
+	deleteRemoved := false
+	if val, err := db.GetSettingByUser(systemUserID, "delete_removed"); err == nil {
+		deleteRemoved = val == "true"
+	}
+	if deleteRemoved {
+		deletedCount := e.deleteRemovedSongs(playlistName, playlistID, trackIDs, systemUserID)
+		fmt.Printf("[asyncScanAndDownload] delete_removed: deleted %d files\n", deletedCount)
+	}
+
 	// 完成扫描任务
 	e.taskService.UpdateTaskProgress(scanTask.ID, len(trackIDs), len(trackIDs))
 	e.taskService.CompleteTask(scanTask.ID)
@@ -793,6 +804,46 @@ func (e *Engine) asyncScanAndDownload(playlistID int, playlistName string, track
 		e.downloadQueue <- task
 		fmt.Printf("[asyncScanAndDownload] queued download task: %s (songID=%d)\n", info.Name, info.SongID)
 	}
+}
+
+// deleteRemovedSongs 删除本地已下载但不在当前歌单中的歌曲文件
+// 返回删除的文件数量
+func (e *Engine) deleteRemovedSongs(playlistName string, playlistID int, currentTrackIDs []int, systemUserID int) int {
+	// 构建当前歌单的歌曲ID集合
+	currentSet := make(map[int]bool, len(currentTrackIDs))
+	for _, id := range currentTrackIDs {
+		currentSet[id] = true
+	}
+
+	// 获取该歌单的所有下载记录
+	history, err := db.GetDownloadsByPlaylistID(playlistID)
+	if err != nil {
+		fmt.Printf("[deleteRemovedSongs] failed to get downloads: %v\n", err)
+		return 0
+	}
+
+	deletedCount := 0
+	for _, h := range history {
+		// 如果歌曲仍在当前歌单中，跳过
+		if currentSet[h.SongID] {
+			continue
+		}
+
+		// 删除本地文件
+		if h.FilePath != "" {
+			if err := os.Remove(h.FilePath); err != nil {
+				fmt.Printf("[deleteRemovedSongs] failed to delete %s: %v\n", h.FilePath, err)
+			} else {
+				fmt.Printf("[deleteRemovedSongs] deleted %s (songID=%d, name=%s)\n", h.FilePath, h.SongID, h.SongName)
+				deletedCount++
+			}
+		}
+
+		// 删除下载记录
+		db.DeleteDownloadBySongIDAndPlaylistID(h.SongID, playlistID)
+	}
+
+	return deletedCount
 }
 
 // scanPlaylistSongs 扫描歌单歌曲，返回：(已跳过的歌曲ID, 需要下载的歌曲信息, 可复制的歌曲ID)
@@ -1129,19 +1180,31 @@ func (e *Engine) downloadFile(ctx context.Context, url, dstPath string, task *Do
 	partialPath := dstPath + ".partial"
 	var downloadedSize int64 = 0
 
-	// 优先使用 task 中恢复的下载进度（从 DB 恢复的断点续传）
-	if task.DownloadedSize > 0 {
-		downloadedSize = task.DownloadedSize
-		fmt.Printf("[download] resume %s from DB: %d bytes\n", task.SongName, downloadedSize)
+	// 检查是否启用断点续传
+	resumeEnabled := true
+	if val, err := db.GetSetting("resume_downloads"); err == nil {
+		resumeEnabled = val != "false"
 	}
 
-	// 检查是否存在 .partial 文件（断点续传）
-	if info, err := os.Stat(partialPath); err == nil {
-		// 取两者中较大的值
-		if info.Size() > downloadedSize {
-			downloadedSize = info.Size()
-			fmt.Printf("[download] resume %s from partial file: %d bytes\n", task.SongName, downloadedSize)
+	if resumeEnabled {
+		// 优先使用 task 中恢复的下载进度（从 DB 恢复的断点续传）
+		if task.DownloadedSize > 0 {
+			downloadedSize = task.DownloadedSize
+			fmt.Printf("[download] resume %s from DB: %d bytes\n", task.SongName, downloadedSize)
 		}
+
+		// 检查是否存在 .partial 文件（断点续传）
+		if info, err := os.Stat(partialPath); err == nil {
+			// 取两者中较大的值
+			if info.Size() > downloadedSize {
+				downloadedSize = info.Size()
+				fmt.Printf("[download] resume %s from partial file: %d bytes\n", task.SongName, downloadedSize)
+			}
+		}
+	} else {
+		// 关闭断点续传，清理残留文件
+		os.Remove(partialPath)
+		fmt.Printf("[download] resume disabled, starting fresh for %s\n", task.SongName)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -1599,14 +1662,26 @@ func (e *Engine) settingsWatcher(ctx context.Context) {
 
 	// 启动时立即检查一次
 	if getSettingBool("auto_sync", false) {
-		interval := getSyncInterval("sync_interval", "sync_unit", 12)
-		if time.Since(lastSyncTime) > interval {
-			fmt.Println("[engine] auto sync triggered on startup")
-			lastSyncTime = time.Now()
-			db.SetSetting("last_sync_time", lastSyncTime.Format(time.RFC3339))
-			nextTime := lastSyncTime.Add(interval)
-			db.SetSetting("next_sync_time", nextTime.Format(time.RFC3339))
-			go e.runAutoSync(ctx)
+		syncMode, _ := db.GetSetting("sync_mode")
+		if syncMode == "schedule" {
+			// 定时模式：检查当前时间是否匹配
+			if e.shouldTriggerScheduleSync() {
+				fmt.Println("[engine] schedule sync triggered on startup")
+				lastSyncTime = time.Now()
+				db.SetSetting("last_sync_time", lastSyncTime.Format(time.RFC3339))
+				go e.runAutoSync(ctx)
+			}
+		} else {
+			// 间隔模式
+			interval := getSyncInterval("sync_interval", "sync_unit", 12)
+			if time.Since(lastSyncTime) > interval {
+				fmt.Println("[engine] auto sync triggered on startup")
+				lastSyncTime = time.Now()
+				db.SetSetting("last_sync_time", lastSyncTime.Format(time.RFC3339))
+				nextTime := lastSyncTime.Add(interval)
+				db.SetSetting("next_sync_time", nextTime.Format(time.RFC3339))
+				go e.runAutoSync(ctx)
+			}
 		}
 	}
 
@@ -1615,22 +1690,101 @@ func (e *Engine) settingsWatcher(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			// 自动同步（数据补全跟随同步运行，在 checkPlaylistPhaseComplete 中触发）
-			if getSettingBool("auto_sync", false) {
+			if !getSettingBool("auto_sync", false) {
+				continue
+			}
+
+			syncMode, _ := db.GetSetting("sync_mode")
+			if syncMode == "schedule" {
+				// 定时模式：检查是否到达指定时间
+				if e.shouldTriggerScheduleSync() {
+					// 检查是否已经同步过（避免一分钟内重复触发）
+					lastSyncTimeStr, _ := db.GetSetting("last_sync_time")
+					if lastSyncTimeStr != "" {
+						lastSyncTime, _ := time.Parse(time.RFC3339, lastSyncTimeStr)
+						if time.Since(lastSyncTime) < 1*time.Hour {
+							continue
+						}
+					}
+					fmt.Println("[engine] schedule sync triggered")
+					now := time.Now()
+					db.SetSetting("last_sync_time", now.Format(time.RFC3339))
+					go e.runAutoSync(ctx)
+				}
+			} else {
+				// 间隔模式
 				interval := getSyncInterval("sync_interval", "sync_unit", 12)
 				if time.Since(lastSyncTime) > interval {
 					fmt.Println("[engine] auto sync triggered")
 					lastSyncTime = time.Now()
-					// 保存同步时间到数据库
 					db.SetSetting("last_sync_time", lastSyncTime.Format(time.RFC3339))
 					nextTime := lastSyncTime.Add(interval)
 					db.SetSetting("next_sync_time", nextTime.Format(time.RFC3339))
-					// 执行自动同步
 					e.runAutoSync(ctx)
 				}
 			}
 		}
 	}
+}
+
+// shouldTriggerScheduleSync 检查当前时间是否匹配定时同步设置
+func (e *Engine) shouldTriggerScheduleSync() bool {
+	// 获取设置的星期
+	weekdaysStr, _ := db.GetSetting("sync_weekdays")
+	if weekdaysStr == "" || weekdaysStr == "[]" {
+		return false
+	}
+
+	var weekdays []int
+	json.Unmarshal([]byte(weekdaysStr), &weekdays)
+	if len(weekdays) == 0 {
+		return false
+	}
+
+	// 获取设置的时间
+	syncTimeStr, _ := db.GetSetting("sync_time")
+	if syncTimeStr == "" {
+		return false
+	}
+
+	// 解析时间（格式：HH:MM）
+	parts := strings.Split(syncTimeStr, ":")
+	if len(parts) != 2 {
+		return false
+	}
+
+	targetHour, _ := strconv.Atoi(parts[0])
+	targetMinute, _ := strconv.Atoi(parts[1])
+
+	// 获取当前时间
+	now := time.Now()
+	currentWeekday := int(now.Weekday()) // 0=Sunday, 1=Monday, ..., 6=Saturday
+	// 转换为中文星期（1=Monday, 2=Tuesday, ..., 7=Sunday）
+	if currentWeekday == 0 {
+		currentWeekday = 7
+	}
+
+	// 检查星期是否匹配
+	weekdayMatch := false
+	for _, wd := range weekdays {
+		if wd == currentWeekday {
+			weekdayMatch = true
+			break
+		}
+	}
+	if !weekdayMatch {
+		return false
+	}
+
+	// 检查时间是否匹配（允许1分钟误差）
+	currentHour := now.Hour()
+	currentMinute := now.Minute()
+
+	if currentHour == targetHour && currentMinute >= targetMinute && currentMinute < targetMinute+1 {
+		return true
+	}
+
+	return false
 }
 
 // runAutoSync 执行自动同步：获取用户歌单列表，逐个触发下载

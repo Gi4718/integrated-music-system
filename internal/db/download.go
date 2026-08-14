@@ -269,3 +269,39 @@ func GetAnyDownloadedSong(songID int) (*model.DownloadHistory, error) {
 	}
 	return &d, nil
 }
+
+// GetDownloadsByPlaylistID 获取指定歌单的所有下载记录
+func GetDownloadsByPlaylistID(playlistID int) ([]model.DownloadHistory, error) {
+	query := `SELECT id, song_id, song_name, COALESCE(artist,''), COALESCE(album,''), COALESCE(quality,''), status,
+			  COALESCE(error_msg,''), COALESCE(file_path,''), COALESCE(file_size, 0),
+			  metadata_completed, COALESCE(download_url,''), COALESCE(total_size, 0), COALESCE(downloaded_size, 0),
+			  COALESCE(sub_dir,''), playlist_id, COALESCE(phase,'download'),
+			  cover_downloaded, lyrics_downloaded, artist_completed, id3_embedded, created_at, updated_at
+			  FROM downloads WHERE playlist_id = ? ORDER BY created_at DESC`
+	rows, err := dbConn.Query(query, playlistID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []model.DownloadHistory
+	for rows.Next() {
+		var d model.DownloadHistory
+		err := rows.Scan(&d.ID, &d.SongID, &d.SongName, &d.Artist, &d.Album, &d.Quality, &d.Status, &d.ErrorMsg,
+			&d.FilePath, &d.FileSize, &d.MetadataCompleted, &d.DownloadURL, &d.TotalSize, &d.DownloadedSize,
+			&d.SubDir, &d.PlaylistID, &d.Phase, &d.CoverDownloaded, &d.LyricsDownloaded, &d.ArtistCompleted,
+			&d.ID3Embedded, &d.CreatedAt, &d.UpdatedAt)
+		if err != nil {
+			return nil, err
+		}
+		list = append(list, d)
+	}
+	return list, rows.Err()
+}
+
+// DeleteDownloadBySongIDAndPlaylistID 删除指定歌单中的歌曲下载记录
+func DeleteDownloadBySongIDAndPlaylistID(songID, playlistID int) error {
+	query := `DELETE FROM downloads WHERE song_id = ? AND playlist_id = ?`
+	_, err := dbConn.Exec(query, songID, playlistID)
+	return err
+}
