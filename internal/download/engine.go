@@ -1133,11 +1133,12 @@ func (e *Engine) executeTask(ctx context.Context, task *DownloadTask) {
 	baseDir := filepath.Join("/music", username)
 	if task.SubDir != "" {
 		baseDir = filepath.Join("/music", username, task.SubDir)
-		if err := os.MkdirAll(baseDir, 0755); err != nil {
-			e.failTask(task, fmt.Sprintf("创建目录失败: %v", err))
-			e.checkPlaylistPhaseComplete(task.PlaylistID)
-			return
-		}
+	}
+	// 确保目录存在（无论是单曲下载还是歌单下载）
+	if err := os.MkdirAll(baseDir, 0755); err != nil {
+		e.failTask(task, fmt.Sprintf("创建目录失败: %v", err))
+		e.checkPlaylistPhaseComplete(task.PlaylistID)
+		return
 	}
 	filePath := filepath.Join(baseDir, filename)
 	task.FilePath = filePath
