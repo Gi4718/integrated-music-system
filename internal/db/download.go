@@ -7,9 +7,9 @@ import (
 )
 
 func SaveDownloadHistory(d *model.DownloadHistory) error {
-	query := `INSERT INTO downloads (song_id, song_name, artist, album, quality, status, sub_dir, playlist_id, phase, created_at, updated_at)
-			  VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'download', ?, ?)`
-	_, err := dbConn.Exec(query, d.SongID, d.SongName, d.Artist, d.Album, d.Quality, d.Status, d.SubDir, d.PlaylistID, time.Now(), time.Now())
+	query := `INSERT INTO downloads (song_id, song_name, artist, album, quality, status, sub_dir, playlist_id, phase, system_user_id, created_at, updated_at)
+			  VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'download', ?, ?, ?)`
+	_, err := dbConn.Exec(query, d.SongID, d.SongName, d.Artist, d.Album, d.Quality, d.Status, d.SubDir, d.PlaylistID, d.SystemUserID, time.Now(), time.Now())
 	return err
 }
 
