@@ -418,14 +418,15 @@ func (e *Engine) AddTaskWithSubDir(songID int, quality string, subDir string, pl
 	e.mu.Unlock()
 
 	db.SaveDownloadHistory(&model.DownloadHistory{
-		SongID:     songID,
-		SongName:   songName,
-		Artist:     artist,
-		Album:      album,
-		Quality:    quality,
-		Status:     "pending",
-		SubDir:     subDir,
-		PlaylistID: playlistID,
+		SongID:       songID,
+		SongName:     songName,
+		Artist:       artist,
+		Album:        album,
+		Quality:      quality,
+		Status:       "pending",
+		SubDir:       subDir,
+		PlaylistID:   playlistID,
+		SystemUserID: systemUserID,
 	})
 
 	e.downloadQueue <- task
@@ -675,17 +676,18 @@ func (e *Engine) asyncScanAndDownload(playlistID int, playlistName string, track
 		
 		// 保存下载记录
 		db.SaveDownloadHistory(&model.DownloadHistory{
-			SongID:     songID,
-			SongName:   history.SongName,
-			Artist:     history.Artist,
-			Album:      history.Album,
-			Quality:    history.Quality,
-			Status:     "completed",
-			FilePath:   targetPath,
-			FileSize:   history.FileSize,
-			SubDir:     playlistName,
-			PlaylistID: playlistID,
-			Phase:      "download",
+			SongID:       songID,
+			SongName:     history.SongName,
+			Artist:       history.Artist,
+			Album:        history.Album,
+			Quality:      history.Quality,
+			Status:       "completed",
+			FilePath:     targetPath,
+			FileSize:     history.FileSize,
+			SubDir:       playlistName,
+			PlaylistID:   playlistID,
+			Phase:        "download",
+			SystemUserID: systemUserID,
 		})
 		
 		virtualTask := &DownloadTask{
@@ -791,14 +793,15 @@ func (e *Engine) asyncScanAndDownload(playlistID int, playlistName string, track
 		e.mu.Unlock()
 		
 		db.SaveDownloadHistory(&model.DownloadHistory{
-			SongID:     info.SongID,
-			SongName:   info.Name,
-			Artist:     info.Artist,
-			Album:      info.Album,
-			Quality:    quality,
-			Status:     "pending",
-			SubDir:     playlistName,
-			PlaylistID: playlistID,
+			SongID:       info.SongID,
+			SongName:     info.Name,
+			Artist:       info.Artist,
+			Album:        info.Album,
+			Quality:      quality,
+			Status:       "pending",
+			SubDir:       playlistName,
+			PlaylistID:   playlistID,
+			SystemUserID: systemUserID,
 		})
 		
 		e.downloadQueue <- task
