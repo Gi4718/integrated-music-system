@@ -26,7 +26,6 @@ func GetCurrentUser() (*model.User, error) {
 	row := dbConn.QueryRow(query)
 
 	var user model.User
-	var systemUserID int
 	err = row.Scan(
 		&user.ID,
 		&user.UserID,
@@ -36,7 +35,7 @@ func GetCurrentUser() (*model.User, error) {
 		&user.CookieExpires,
 		&user.CreatedAt,
 		&user.UpdatedAt,
-		&systemUserID,
+		&user.SystemUserID,
 	)
 
 	if err == sql.ErrNoRows {

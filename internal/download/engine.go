@@ -169,17 +169,9 @@ func (e *Engine) recoverIncompleteTasks(ctx context.Context) {
 			formattedName = strings.ReplaceAll(formattedName, "{artist}", d.Artist)
 			filename := sanitizeFilename(formattedName) + ext
 			
-			// 获取用户名用于路径隔离
-			username := "default"
-			if d.SystemUserID > 0 {
-				if user, err := db.GetSystemUserByID(d.SystemUserID); err == nil && user != nil {
-					username = sanitizeFilename(user.Username)
-				}
-			}
-			
-			baseDir := filepath.Join("/music", username)
+			baseDir := "/music"
 			if d.SubDir != "" {
-				baseDir = filepath.Join("/music", username, d.SubDir)
+				baseDir = filepath.Join("/music", d.SubDir)
 			}
 			computedPath := filepath.Join(baseDir, filename)
 
@@ -1854,7 +1846,7 @@ func (e *Engine) runAutoSync(ctx context.Context) {
 		totalPlaylists++
 
 		// 触发歌单下载（会自动创建扫描→下载→补全任务）
-		_, _, _, err := e.AddPlaylistTask(playlistID, quality)
+		_, _, _, err := e.AddPlaylistTask(playlistID, quality, user.SystemUserID)
 		if err != nil {
 			fmt.Printf("[autoSync] failed to sync playlist %s: %v\n", playlistName, err)
 			continue

@@ -49,6 +49,7 @@ type User struct {
 	AvatarURL      string    `json:"avatar_url"`
 	Cookie         string    `json:"-"`
 	CookieExpires  time.Time `json:"cookie_expires"`
+	SystemUserID   int       `json:"system_user_id"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 }
