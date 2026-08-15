@@ -161,7 +161,7 @@ func (e *Engine) recoverIncompleteTasks(ctx context.Context) {
 			if d.Quality == "lossless" {
 				ext = ".flac"
 			}
-			songFormat, _ := db.GetSetting("song_format")
+			songFormat, _ := db.GetSettingByUser(d.SystemUserID, "song_format")
 			if songFormat == "" {
 				songFormat = "{songName} - {artist}"
 			}
@@ -169,9 +169,17 @@ func (e *Engine) recoverIncompleteTasks(ctx context.Context) {
 			formattedName = strings.ReplaceAll(formattedName, "{artist}", d.Artist)
 			filename := sanitizeFilename(formattedName) + ext
 			
-			baseDir := "/music"
+			// 获取用户名用于路径隔离
+			username := "default"
+			if d.SystemUserID > 0 {
+				if user, err := db.GetSystemUserByID(d.SystemUserID); err == nil && user != nil {
+					username = sanitizeFilename(user.Username)
+				}
+			}
+			
+			baseDir := filepath.Join("/music", username)
 			if d.SubDir != "" {
-				baseDir = filepath.Join("/music", d.SubDir)
+				baseDir = filepath.Join("/music", username, d.SubDir)
 			}
 			computedPath := filepath.Join(baseDir, filename)
 
@@ -559,7 +567,7 @@ func (e *Engine) asyncScanAndDownload(playlistID int, playlistName string, track
 	
 	// 执行扫描
 	e.taskService.SetTaskStatus(scanTask.ID, service.TaskStatusRunning)
-	skippedSongIDs, remainingInfos, copiedSongIDs := e.scanPlaylistSongs(ctx, trackIDs, quality, playlistName, playlistID, scanTask)
+	skippedSongIDs, remainingInfos, copiedSongIDs := e.scanPlaylistSongs(ctx, trackIDs, quality, playlistName, playlistID, scanTask, systemUserID)
 	
 	skippedCount := len(skippedSongIDs)
 	copiedCount := len(copiedSongIDs)
@@ -650,7 +658,7 @@ func (e *Engine) asyncScanAndDownload(playlistID int, playlistName string, track
 		os.MkdirAll(targetDir, 0755)
 		
 		ext := filepath.Ext(history.FilePath)
-		songFormat, _ := db.GetSetting("song_format")
+		songFormat, _ := db.GetSettingByUser(systemUserID, "song_format")
 		if songFormat == "" {
 			songFormat = "{songName} - {artist}"
 		}
@@ -839,15 +847,23 @@ func (e *Engine) deleteRemovedSongs(playlistName string, playlistID int, current
 }
 
 // scanPlaylistSongs 扫描歌单歌曲，返回：(已跳过的歌曲ID, 需要下载的歌曲信息, 可复制的歌曲ID)
-func (e *Engine) scanPlaylistSongs(ctx context.Context, trackIDs []int, quality, playlistName string, playlistID int, scanTask *service.Task) ([]int, []SongInfo, []int) {
+func (e *Engine) scanPlaylistSongs(ctx context.Context, trackIDs []int, quality, playlistName string, playlistID int, scanTask *service.Task, systemUserID int) ([]int, []SongInfo, []int) {
 	var skipped []int
 	var remaining []SongInfo
 	var copied []int
 	
-	// 构建目标目录
-	targetDir := "/music"
+	// 获取用户名用于路径隔离
+	username := "default"
+	if systemUserID > 0 {
+		if user, err := db.GetSystemUserByID(systemUserID); err == nil && user != nil {
+			username = sanitizeFilename(user.Username)
+		}
+	}
+	
+	// 构建目标目录（用户隔离）
+	targetDir := filepath.Join("/music", username)
 	if playlistName != "" {
-		targetDir = filepath.Join("/music", playlistName)
+		targetDir = filepath.Join("/music", username, playlistName)
 	}
 	
 	// 扫描每首歌曲
@@ -934,7 +950,7 @@ func (e *Engine) scanPlaylistSongs(ctx context.Context, trackIDs []int, quality,
 		if quality == "lossless" {
 			ext = ".flac"
 		}
-		songFormat, _ := db.GetSetting("song_format")
+		songFormat, _ := db.GetSettingByUser(systemUserID, "song_format")
 		if songFormat == "" {
 			songFormat = "{songName} - {artist}"
 		}
@@ -1095,7 +1111,7 @@ func (e *Engine) executeTask(ctx context.Context, task *DownloadTask) {
 	}
 
 	// 从设置读取文件名格式，默认 {songName} - {artist}
-	songFormat, _ := db.GetSetting("song_format")
+	songFormat, _ := db.GetSettingByUser(task.SystemUserID, "song_format")
 	if songFormat == "" {
 		songFormat = "{songName} - {artist}"
 	}
@@ -1172,10 +1188,10 @@ func (e *Engine) downloadFile(ctx context.Context, url, dstPath string, task *Do
 	partialPath := dstPath + ".partial"
 	var downloadedSize int64 = 0
 
-	// 检查是否启用断点续传
+	// 检查是否启用断点续传（使用用户设置）
 	resumeEnabled := true
-	if val, err := db.GetSetting("resume_downloads"); err == nil {
-		resumeEnabled = val != "false"
+	if val, err := db.GetSettingByUser(task.SystemUserID, "resume_downloads"); err == nil && val != "" {
+		resumeEnabled = val == "true"
 	}
 
 	if resumeEnabled {
@@ -1806,7 +1822,7 @@ func (e *Engine) runAutoSync(ctx context.Context) {
 		return
 	}
 
-	quality, _ := db.GetSetting("quality")
+	quality, _ := db.GetSettingByUser(user.SystemUserID, "quality")
 	if quality == "" {
 		quality = "high"
 	}

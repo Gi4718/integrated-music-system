@@ -82,6 +82,7 @@ func initTables() error {
 			lyrics_downloaded BOOLEAN DEFAULT 0,
 			artist_completed BOOLEAN DEFAULT 0,
 			id3_embedded BOOLEAN DEFAULT 0,
+			system_user_id INTEGER DEFAULT 0,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
@@ -175,6 +176,8 @@ func initTables() error {
 		`ALTER TABLE downloads ADD COLUMN id3_embedded BOOLEAN DEFAULT 0`,
 		// 为 users 表添加 system_user_id 字段
 		`ALTER TABLE users ADD COLUMN system_user_id INTEGER DEFAULT 0`,
+		// 为 downloads 表添加 system_user_id 字段
+		`ALTER TABLE downloads ADD COLUMN system_user_id INTEGER DEFAULT 0`,
 	}
 
 	// 执行迁移

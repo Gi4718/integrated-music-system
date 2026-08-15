@@ -65,7 +65,7 @@ func GetPendingDownloads() ([]model.DownloadHistory, error) {
 			  COALESCE(error_msg,''), COALESCE(file_path,''), COALESCE(file_size, 0),
 			  metadata_completed, COALESCE(download_url,''), COALESCE(total_size, 0), COALESCE(downloaded_size, 0),
 			  COALESCE(sub_dir,''), playlist_id, COALESCE(phase,'download'),
-			  cover_downloaded, lyrics_downloaded, artist_completed, id3_embedded, created_at, updated_at
+			  cover_downloaded, lyrics_downloaded, artist_completed, id3_embedded, COALESCE(system_user_id, 0), created_at, updated_at
 			  FROM downloads WHERE phase != 'completed' ORDER BY created_at ASC`
 	rows, err := dbConn.Query(query)
 	if err != nil {
@@ -79,7 +79,7 @@ func GetPendingDownloads() ([]model.DownloadHistory, error) {
 		err := rows.Scan(&d.ID, &d.SongID, &d.SongName, &d.Artist, &d.Album, &d.Quality, &d.Status, &d.ErrorMsg,
 			&d.FilePath, &d.FileSize, &d.MetadataCompleted, &d.DownloadURL, &d.TotalSize, &d.DownloadedSize,
 			&d.SubDir, &d.PlaylistID, &d.Phase, &d.CoverDownloaded, &d.LyricsDownloaded, &d.ArtistCompleted,
-			&d.ID3Embedded, &d.CreatedAt, &d.UpdatedAt)
+			&d.ID3Embedded, &d.SystemUserID, &d.CreatedAt, &d.UpdatedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -93,7 +93,7 @@ func GetDownloadHistory() ([]model.DownloadHistory, error) {
 			  COALESCE(error_msg,''), COALESCE(file_path,''), COALESCE(file_size, 0),
 			  metadata_completed, COALESCE(download_url,''), COALESCE(total_size, 0), COALESCE(downloaded_size, 0),
 			  COALESCE(sub_dir,''), playlist_id, COALESCE(phase,'download'),
-			  cover_downloaded, lyrics_downloaded, artist_completed, id3_embedded, created_at, updated_at
+			  cover_downloaded, lyrics_downloaded, artist_completed, id3_embedded, COALESCE(system_user_id, 0), created_at, updated_at
 			  FROM downloads ORDER BY created_at DESC`
 	rows, err := dbConn.Query(query)
 	if err != nil {
@@ -107,7 +107,7 @@ func GetDownloadHistory() ([]model.DownloadHistory, error) {
 		err := rows.Scan(&d.ID, &d.SongID, &d.SongName, &d.Artist, &d.Album, &d.Quality, &d.Status, &d.ErrorMsg,
 			&d.FilePath, &d.FileSize, &d.MetadataCompleted, &d.DownloadURL, &d.TotalSize, &d.DownloadedSize,
 			&d.SubDir, &d.PlaylistID, &d.Phase, &d.CoverDownloaded, &d.LyricsDownloaded, &d.ArtistCompleted,
-			&d.ID3Embedded, &d.CreatedAt, &d.UpdatedAt)
+			&d.ID3Embedded, &d.SystemUserID, &d.CreatedAt, &d.UpdatedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -121,14 +121,14 @@ func GetDownloadBySongID(songID int) (*model.DownloadHistory, error) {
 			  COALESCE(error_msg,''), COALESCE(file_path,''), COALESCE(file_size, 0),
 			  metadata_completed, COALESCE(download_url,''), COALESCE(total_size, 0), COALESCE(downloaded_size, 0),
 			  COALESCE(sub_dir,''), playlist_id, COALESCE(phase,'download'),
-			  cover_downloaded, lyrics_downloaded, artist_completed, id3_embedded, created_at, updated_at
+			  cover_downloaded, lyrics_downloaded, artist_completed, id3_embedded, COALESCE(system_user_id, 0), created_at, updated_at
 			  FROM downloads WHERE song_id = ? ORDER BY created_at DESC LIMIT 1`
 	row := dbConn.QueryRow(query, songID)
 	var d model.DownloadHistory
 	err := row.Scan(&d.ID, &d.SongID, &d.SongName, &d.Artist, &d.Album, &d.Quality, &d.Status, &d.ErrorMsg,
 		&d.FilePath, &d.FileSize, &d.MetadataCompleted, &d.DownloadURL, &d.TotalSize, &d.DownloadedSize,
 		&d.SubDir, &d.PlaylistID, &d.Phase, &d.CoverDownloaded, &d.LyricsDownloaded, &d.ArtistCompleted,
-		&d.ID3Embedded, &d.CreatedAt, &d.UpdatedAt)
+		&d.ID3Embedded, &d.SystemUserID, &d.CreatedAt, &d.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

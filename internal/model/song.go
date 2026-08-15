@@ -76,6 +76,7 @@ type DownloadHistory struct {
 	LyricsDownloaded bool      `json:"lyrics_downloaded"`
 	ArtistCompleted  bool      `json:"artist_completed"`
 	ID3Embedded      bool      `json:"id3_embedded"`
+	SystemUserID     int       `json:"system_user_id"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
 }
