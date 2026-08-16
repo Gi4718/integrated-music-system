@@ -1,8 +1,10 @@
 package db
 
 import (
+	"crypto/sha256"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -244,8 +246,14 @@ func hashPassword(password string) string {
 	return string(hash)
 }
 
-// checkPassword 验证密码
+// checkPassword 验证密码（兼容旧的 SHA256 哈希和新的 bcrypt 哈希）
 func checkPassword(password, hash string) bool {
-	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
-	return err == nil
+	// 检查是否是 bcrypt 哈希（以 $2a$ 或 $2b$ 开头）
+	if len(hash) > 4 && (hash[:4] == "$2a$" || hash[:4] == "$2b$") {
+		err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+		return err == nil
+	}
+	// 兼容旧的 SHA256 哈希
+	sha256Hash := fmt.Sprintf("%x", sha256.Sum256([]byte(password)))
+	return sha256Hash == hash
 }
