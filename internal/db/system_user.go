@@ -1,11 +1,11 @@
 package db
 
 import (
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 type SystemUser struct {
@@ -69,8 +69,7 @@ func AuthenticateSystemUser(username, password string) (*SystemUser, error) {
 	}
 
 	// 验证密码
-	hash := hashPassword(password)
-	if hash != user.PasswordHash {
+	if !checkPassword(password, user.PasswordHash) {
 		// 增加失败次数
 		user.FailedAttempts++
 		var lockedUntil time.Time
@@ -236,8 +235,17 @@ func GetSystemUserByUsername(username string) (*SystemUser, error) {
 	return &user, nil
 }
 
-// hashPassword 使用SHA256加密密码
+// hashPassword 使用bcrypt加密密码
 func hashPassword(password string) string {
-	hash := sha256.Sum256([]byte(password))
-	return hex.EncodeToString(hash[:])
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return password // fallback，理论上不会发生
+	}
+	return string(hash)
+}
+
+// checkPassword 验证密码
+func checkPassword(password, hash string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	return err == nil
 }

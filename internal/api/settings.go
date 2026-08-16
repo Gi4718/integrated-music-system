@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"endfield-music/internal/db"
@@ -132,6 +133,12 @@ func updateSettings(c *gin.Context) {
 				}
 			}
 			if isGlobalSetting {
+				// 安全检查：全局设置只有管理员可以修改
+				userRole := c.GetString("role")
+				if userRole != "admin" {
+					errors = append(errors, fmt.Sprintf("%s: 只有管理员可以修改全局设置", key))
+					continue
+				}
 				if err := db.SetSetting(key, strValue); err != nil {
 					errors = append(errors, fmt.Sprintf("%s: %v", key, err))
 				}
@@ -247,11 +254,19 @@ func validateSSLCert(c *gin.Context) {
 		return
 	}
 
-	cert, err := service.ParseCertificate(req.CertPath)
+	// 安全检查：限制路径必须在 /data/ssl/ 目录下
+	certPath := filepath.Clean(req.CertPath)
+	keyPath := filepath.Clean(req.KeyPath)
+	if !strings.HasPrefix(certPath, "/data/ssl/") || !strings.HasPrefix(keyPath, "/data/ssl/") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "证书路径必须在 /data/ssl/ 目录下"})
+		return
+	}
+
+	cert, err := service.ParseCertificate(certPath)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"valid":   false,
-			"message": "证书解析失败: " + err.Error(),
+			"message": "证书解析失败",
 		})
 		return
 	}
@@ -273,7 +288,7 @@ func validateSSLCert(c *gin.Context) {
 		return
 	}
 
-	keyData, err := os.ReadFile(req.KeyPath)
+	keyData, err := os.ReadFile(keyPath)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"valid":   false,

@@ -1,18 +1,33 @@
 package api
 
 import (
-	"crypto/sha256"
+	"crypto/rand"
 	"encoding/hex"
 	"net/http"
+	"os"
 	"time"
 
 	"endfield-music/internal/db"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/bcrypt"
 )
 
-var jwtSecret = []byte("endfield-music-secret-key-2026")
+var jwtSecret []byte
+
+func init() {
+	// 从环境变量读取 JWT 密钥，如果未设置则随机生成
+	if secret := os.Getenv("JWT_SECRET"); secret != "" {
+		jwtSecret = []byte(secret)
+	} else {
+		// 生成 32 字节随机密钥
+		jwtSecret = make([]byte, 32)
+		if _, err := rand.Read(jwtSecret); err != nil {
+			panic("failed to generate JWT secret: " + err.Error())
+		}
+	}
+}
 
 type SystemLoginRequest struct {
 	Username string `json:"username" binding:"required"`
@@ -69,7 +84,8 @@ func SystemLogin(c *gin.Context) {
 	// 验证用户
 	user, err := db.AuthenticateSystemUser(req.Username, req.Password)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		// 不泄露具体错误信息，统一返回"用户名或密码错误"
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
 		return
 	}
 
@@ -162,8 +178,17 @@ func AuthMiddleware() gin.HandlerFunc {
 	}
 }
 
-// hashPassword 使用SHA256加密密码
-func hashPassword(password string) string {
-	hash := sha256.Sum256([]byte(password))
-	return hex.EncodeToString(hash[:])
+// hashPassword 使用bcrypt加密密码
+func hashPassword(password string) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(hash), nil
+}
+
+// checkPassword 验证密码
+func checkPassword(password, hash string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	return err == nil
 }

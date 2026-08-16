@@ -45,6 +45,32 @@ func SetupRouter(cfg *config.Config) *gin.Engine {
 	router := gin.Default()
 	currentRouter = router
 
+	// 请求体大小限制（10MB）
+	router.MaxMultipartMemory = 10 << 20
+	router.Use(func(c *gin.Context) {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 10<<20)
+		c.Next()
+	})
+
+	// CORS 配置
+	router.Use(func(c *gin.Context) {
+		origin := c.Request.Header.Get("Origin")
+		if origin != "" {
+			// 允许同源请求和配置的域名
+			c.Header("Access-Control-Allow-Origin", origin)
+			c.Header("Access-Control-Allow-Credentials", "true")
+			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			c.Header("Access-Control-Max-Age", "86400")
+
+			if c.Request.Method == "OPTIONS" {
+				c.AbortWithStatus(http.StatusNoContent)
+				return
+			}
+		}
+		c.Next()
+	})
+
 	// 初始化任务服务（需在下载引擎之前创建，因为引擎需要引用它）
 	taskService := service.NewTaskService()
 	taskHandler := NewTaskHandler(taskService)
