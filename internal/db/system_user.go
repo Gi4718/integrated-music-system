@@ -74,7 +74,7 @@ func AuthenticateSystemUser(username, password string) (*SystemUser, error) {
 	log.Printf("[DEBUG] User found: id=%d, username=%s, hash_len=%d", user.ID, user.Username, len(user.PasswordHash))
 
 	// 检查是否被锁定
-	if lockedUntil.Valid && time.Now().Before(lockedUntil.Time) {
+	if !user.LockedUntil.IsZero() && time.Now().Before(user.LockedUntil) {
 		return nil, errors.New("账号已被锁定，请稍后再试")
 	}
 
