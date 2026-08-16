@@ -2,7 +2,6 @@ package api
 
 import (
 	"crypto/rand"
-	"encoding/hex"
 	"net/http"
 	"os"
 	"time"
@@ -60,7 +59,11 @@ func Register(c *gin.Context) {
 	}
 
 	// 创建首个系统用户（自动为 admin）
-	hash := hashPassword(req.Password)
+	hash, err := hashPassword(req.Password)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "密码加密失败"})
+		return
+	}
 	_, err = db.GetDB().Exec(
 		"INSERT INTO system_users (username, password_hash, role, created_at, failed_attempts) VALUES (?, ?, 'admin', ?, 0)",
 		req.Username, hash, time.Now(),
