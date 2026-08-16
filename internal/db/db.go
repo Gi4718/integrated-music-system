@@ -154,6 +154,17 @@ func initTables() error {
 			UNIQUE(song_id, sub_dir)
 		)`,
 
+		// 同步歌单选择表
+		`CREATE TABLE IF NOT EXISTS sync_playlists (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			playlist_id INTEGER NOT NULL,
+			playlist_name TEXT NOT NULL,
+			user_id INTEGER NOT NULL,
+			enabled BOOLEAN DEFAULT 1,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(playlist_id, user_id)
+		)`,
+
 	}
 
 	for _, table := range tables {

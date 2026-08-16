@@ -114,6 +114,15 @@ export const playlistAPI = {
   },
   subscribePlaylist(playlistId: number) {
     return api.post('/playlist/subscribe', { playlist_id: playlistId })
+  },
+  getSyncPlaylists() {
+    return api.get('/playlist/sync')
+  },
+  updateSyncPlaylists(playlistIds: number[]) {
+    return api.post('/playlist/sync', { playlist_ids: playlistIds })
+  },
+  toggleSyncPlaylist(playlistId: number, enabled: boolean) {
+    return api.post('/playlist/sync/toggle', { playlist_id: playlistId, enabled })
   }
 }
 

@@ -1810,6 +1810,25 @@ func (e *Engine) runAutoSync(ctx context.Context) {
 		return
 	}
 
+	// 获取用户选中的同步歌单
+	enabledPlaylistIDs, err := db.GetEnabledSyncPlaylists(user.SystemUserID)
+	if err != nil {
+		fmt.Printf("[autoSync] failed to get sync playlists: %v\n", err)
+		return
+	}
+
+	// 如果没有配置同步歌单，默认同步所有歌单（向后兼容）
+	hasSyncPlaylists, _ := db.SyncPlaylistsExist(user.SystemUserID)
+
+	// 构建需要同步的歌单ID集合
+	syncPlaylistSet := make(map[int]bool)
+	if hasSyncPlaylists {
+		for _, id := range enabledPlaylistIDs {
+			syncPlaylistSet[id] = true
+		}
+		fmt.Printf("[autoSync] syncing %d selected playlists\n", len(syncPlaylistSet))
+	}
+
 	// 获取用户歌单列表
 	body, err := e.netease.GetUserPlaylists(user.UserID)
 	if err != nil {
@@ -1844,6 +1863,12 @@ func (e *Engine) runAutoSync(ctx context.Context) {
 		playlistName := ""
 		if name, ok := playlist["name"].(string); ok {
 			playlistName = name
+		}
+
+		// 如果配置了同步歌单，只同步选中的歌单
+		if hasSyncPlaylists && !syncPlaylistSet[playlistID] {
+			fmt.Printf("[autoSync] skipping playlist: %s (id=%d) - not selected\n", playlistName, playlistID)
+			continue
 		}
 
 		fmt.Printf("[autoSync] syncing playlist: %s (id=%d)\n", playlistName, playlistID)

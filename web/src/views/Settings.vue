@@ -99,6 +99,39 @@
         </div>
       </div>
 
+      <div v-if="settings.autoSync" class="setting-row">
+        <div class="setting-label-col">
+          <span class="setting-name">同步歌单</span>
+          <span class="setting-desc">选择要同步的歌单（不选择则同步全部）</span>
+        </div>
+        <div class="setting-control-row">
+          <div class="sync-playlists-selector">
+            <div class="playlist-actions">
+              <button class="small-btn" @click="selectAllPlaylists">全选</button>
+              <button class="small-btn" @click="deselectAllPlaylists">全不选</button>
+              <button class="small-btn" @click="loadUserPlaylists" :disabled="loadingPlaylists">
+                {{ loadingPlaylists ? '加载中...' : '刷新列表' }}
+              </button>
+            </div>
+            <div v-if="userPlaylists.length === 0" class="no-playlists">
+              暂无歌单，请先登录网易云账号
+            </div>
+            <div v-else class="playlist-list">
+              <label v-for="playlist in userPlaylists" :key="playlist.id" class="playlist-checkbox-item">
+                <input 
+                  type="checkbox" 
+                  :value="playlist.id" 
+                  v-model="selectedSyncPlaylists"
+                  @change="onPlaylistSelectionChange"
+                />
+                <span class="playlist-name">{{ playlist.name }}</span>
+                <span class="playlist-count">({{ playlist.trackCount }}首)</span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="setting-row">
         <div class="setting-label-col">
           <span class="setting-name">断点续传</span>
@@ -441,7 +474,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
-import { settingsAPI } from '../api'
+import { settingsAPI, playlistAPI } from '../api'
 import { ElMessage } from 'element-plus'
 
 const activeTip = ref('')
@@ -495,6 +528,11 @@ const settings = ref({
   syncTime: '08:00'
 })
 
+// 歌单同步选择相关
+const userPlaylists = ref<Array<{ id: number; name: string; trackCount: number }>>([])
+const selectedSyncPlaylists = ref<number[]>([])
+const loadingPlaylists = ref(false)
+
 const weekdays = [
   { value: 1, label: '周一' },
   { value: 2, label: '周二' },
@@ -512,6 +550,54 @@ const toggleWeekday = (day: number) => {
   } else {
     settings.value.syncWeekdays.push(day)
   }
+}
+
+// 加载用户歌单列表
+const loadUserPlaylists = async () => {
+  loadingPlaylists.value = true
+  try {
+    const response = await playlistAPI.getUserPlaylists()
+    if (response.data.success) {
+      userPlaylists.value = response.data.data.map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        trackCount: p.trackCount || 0
+      }))
+    }
+  } catch (error) {
+    console.error('加载歌单失败:', error)
+  } finally {
+    loadingPlaylists.value = false
+  }
+}
+
+// 加载已保存的同步歌单配置
+const loadSyncPlaylists = async () => {
+  try {
+    const response = await playlistAPI.getSyncPlaylists()
+    if (response.data.success) {
+      selectedSyncPlaylists.value = response.data.data.map((p: any) => p.playlist_id)
+    }
+  } catch (error) {
+    console.error('加载同步歌单配置失败:', error)
+  }
+}
+
+// 全选歌单
+const selectAllPlaylists = () => {
+  selectedSyncPlaylists.value = userPlaylists.value.map(p => p.id)
+  onPlaylistSelectionChange()
+}
+
+// 取消全选
+const deselectAllPlaylists = () => {
+  selectedSyncPlaylists.value = []
+  onPlaylistSelectionChange()
+}
+
+// 歌单选择变化
+const onPlaylistSelectionChange = () => {
+  // 这里可以添加实时保存逻辑，或者在保存设置时一起保存
 }
 
 const acmeApplying = ref(false)
@@ -817,6 +903,12 @@ const loadSettings = async () => {
       }
     }
 
+    // 加载歌单同步配置
+    if (settings.value.autoSync) {
+      await loadSyncPlaylists()
+      await loadUserPlaylists()
+    }
+
     if (settings.value.sslCertPath && settings.value.sslKeyPath) {
       await validateSSLCert()
     }
@@ -865,6 +957,10 @@ const saveSyncSettings = async () => {
       data_complete_artist: settings.value.dataCompleteArtist.toString()
     }
     await settingsAPI.updateSettings(data)
+    
+    // 保存选中的同步歌单
+    await playlistAPI.updateSyncPlaylists(selectedSyncPlaylists.value)
+    
     syncSavedTip.value = true
     await loadSettings()
     setTimeout(() => { syncSavedTip.value = false }, 2000)
@@ -1713,5 +1809,93 @@ watch(pluginFieldValues, syncPluginFields, { deep: true })
   .sync-status-label {
     min-width: auto;
   }
+}
+
+/* 歌单同步选择器样式 */
+.sync-playlists-selector {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.playlist-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.small-btn {
+  padding: 6px 12px;
+  font-size: 13px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-color);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.small-btn:hover:not(:disabled) {
+  background: var(--bg-secondary);
+  border-color: #FFFA00;
+}
+
+.small-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.no-playlists {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 13px;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+}
+
+.playlist-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 8px;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+}
+
+.playlist-checkbox-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-color);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.playlist-checkbox-item:hover {
+  background: var(--bg-hover, rgba(255, 250, 0, 0.05));
+}
+
+.playlist-checkbox-item input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: #FFFA00;
+}
+
+.playlist-name {
+  flex: 1;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.playlist-count {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 </style>

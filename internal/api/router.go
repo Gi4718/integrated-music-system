@@ -204,6 +204,9 @@ func SetupRouter(cfg *config.Config) *gin.Engine {
 				playlist.GET("/user", getUserPlaylists)
 				playlist.GET("/detail", getPlaylistDetail)
 				playlist.POST("/subscribe", subscribePlaylist)
+				playlist.GET("/sync", GetSyncPlaylists)
+				playlist.POST("/sync", UpdateSyncPlaylists)
+				playlist.POST("/sync/toggle", ToggleSyncPlaylist)
 			}
 
 			player := authorized.Group("/player")
