@@ -49,17 +49,22 @@ func CreateSystemUser(username, password string) error {
 func AuthenticateSystemUser(username, password string) (*SystemUser, error) {
 	var user SystemUser
 	var lastLoginAt sql.NullTime
-	var lockedUntil sql.NullTime
+	var lockedUntilStr sql.NullString
 
 	err := dbConn.QueryRow(
 		"SELECT id, username, password_hash, role, created_at, last_login_at, failed_attempts, locked_until FROM system_users WHERE username = ?",
 		username,
-	).Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Role, &user.CreatedAt, &lastLoginAt, &user.FailedAttempts, &lockedUntil)
+	).Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Role, &user.CreatedAt, &lastLoginAt, &user.FailedAttempts, &lockedUntilStr)
 	if lastLoginAt.Valid {
 		user.LastLoginAt = lastLoginAt.Time
 	}
-	if lockedUntil.Valid {
-		user.LockedUntil = lockedUntil.Time
+	if lockedUntilStr.Valid && lockedUntilStr.String != "" {
+		// 尝试解析时间字符串
+		if t, err := time.Parse(time.RFC3339, lockedUntilStr.String); err == nil {
+			user.LockedUntil = t
+		} else if t, err := time.Parse("2006-01-02 15:04:05.999999999 -0700 UTC m=+0.000000000", lockedUntilStr.String); err == nil {
+			user.LockedUntil = t
+		}
 	}
 
 	if err != nil {
