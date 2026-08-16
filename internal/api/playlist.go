@@ -53,7 +53,7 @@ func getUserPlaylists(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"playlists": playlists})
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": playlists})
 }
 
 func getPlaylistDetail(c *gin.Context) {

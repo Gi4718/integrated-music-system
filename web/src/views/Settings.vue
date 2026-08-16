@@ -564,8 +564,13 @@ const loadUserPlaylists = async () => {
         trackCount: p.trackCount || 0
       }))
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('加载歌单失败:', error)
+    if (error.response?.status === 401) {
+      ElMessage.error('登录已过期，请重新登录')
+    } else {
+      ElMessage.error('加载歌单失败: ' + (error.response?.data?.error || error.message))
+    }
   } finally {
     loadingPlaylists.value = false
   }
@@ -1099,6 +1104,14 @@ const syncPluginFields = () => {
 }
 
 watch(pluginFieldValues, syncPluginFields, { deep: true })
+
+// 监听自动同步开关，开启时自动加载歌单列表
+watch(() => settings.value.autoSync, async (newVal) => {
+  if (newVal && userPlaylists.value.length === 0) {
+    await loadSyncPlaylists()
+    await loadUserPlaylists()
+  }
+})
 </script>
 
 <style scoped>

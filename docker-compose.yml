@@ -13,6 +13,7 @@ services:
       - /vol1/1000/music:/music
     environment:
       - TZ=Asia/Shanghai
+      - JWT_SECRET=endfield-music-jwt-secret-2026-fixed-key
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:33550/api/health"]
