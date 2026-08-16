@@ -2,6 +2,7 @@ package api
 
 import (
 	"crypto/rand"
+	"log"
 	"net/http"
 	"os"
 	"time"
