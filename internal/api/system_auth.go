@@ -85,12 +85,15 @@ func SystemLogin(c *gin.Context) {
 	}
 
 	// 验证用户
+	log.Printf("[DEBUG] Login attempt: username=%s, password_len=%d", req.Username, len(req.Password))
 	user, err := db.AuthenticateSystemUser(req.Username, req.Password)
 	if err != nil {
+		log.Printf("[DEBUG] Login failed: %v", err)
 		// 不泄露具体错误信息，统一返回"用户名或密码错误"
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
 		return
 	}
+	log.Printf("[DEBUG] Login success: user_id=%d, username=%s", user.ID, user.Username)
 
 	// 获取用户实际角色（从数据库读取）
 	userRole := user.Role

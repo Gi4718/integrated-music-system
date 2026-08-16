@@ -49,8 +49,25 @@ const router = createRouter({
 
 // 路由守卫：检查系统认证
 router.beforeEach(async (to, _from, next) => {
-  // 允许访问登录和注册页面
-  if (to.name === 'login' || to.name === 'register') {
+  // 登录页面：允许访问
+  if (to.name === 'login') {
+    next()
+    return
+  }
+
+  // 注册页面：如果系统已有用户，直接遣返到登录页
+  if (to.name === 'register') {
+    try {
+      const response = await fetch('/api/system/check')
+      const data = await response.json()
+      if (data.has_user) {
+        ElMessage.warning('系统已有管理员账号，请直接登录')
+        next({ name: 'login' })
+        return
+      }
+    } catch {
+      // 出错时允许访问注册页
+    }
     next()
     return
   }
