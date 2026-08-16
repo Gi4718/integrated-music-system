@@ -63,8 +63,10 @@ func AuthenticateSystemUser(username, password string) (*SystemUser, error) {
 	}
 
 	if err != nil {
+		log.Printf("[DEBUG] DB query error: %v", err)
 		return nil, errors.New("用户名或密码错误")
 	}
+	log.Printf("[DEBUG] User found: id=%d, username=%s, hash_len=%d", user.ID, user.Username, len(user.PasswordHash))
 
 	// 检查是否被锁定
 	if lockedUntil.Valid && time.Now().Before(lockedUntil.Time) {
