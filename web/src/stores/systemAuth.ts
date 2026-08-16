@@ -2,12 +2,44 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { systemAPI } from '../api'
 
+// 解析 JWT token（不验证签名，仅解析 payload）
+function parseJwtPayload(token: string): any {
+  try {
+    const base64Url = token.split('.')[1]
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/')
+    const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+      return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
+    }).join(''))
+    return JSON.parse(jsonPayload)
+  } catch {
+    return null
+  }
+}
+
+// 检查 token 是否过期
+function isTokenExpired(token: string): boolean {
+  const payload = parseJwtPayload(token)
+  if (!payload || !payload.exp) return true
+  // 提前 60 秒视为过期，避免边界情况
+  return Date.now() / 1000 >= payload.exp - 60
+}
+
 export const useSystemAuthStore = defineStore('systemAuth', () => {
   const token = ref<string | null>(localStorage.getItem('system_token'))
   const username = ref<string | null>(localStorage.getItem('system_username'))
   const role = ref<string | null>(localStorage.getItem('system_role'))
 
-  const isSystemLoggedIn = computed(() => !!token.value)
+  // 检查登录状态：token 存在且未过期
+  const isSystemLoggedIn = computed(() => {
+    if (!token.value) return false
+    // 检查 token 是否过期
+    if (isTokenExpired(token.value)) {
+      // token 已过期，清除登录状态
+      logout()
+      return false
+    }
+    return true
+  })
   const isAdmin = computed(() => !role.value || role.value === 'admin')
 
   const login = async (usernameInput: string, password: string) => {

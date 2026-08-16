@@ -177,37 +177,65 @@ func getLoginStatus(c *gin.Context) {
 		return
 	}
 
-	// cookie 有效，先返回已登录状态（使用数据库缓存的用户信息）
+	// cookie 未过期，尝试用网易云API验证实际有效性
 	nickname := user.Nickname
 	avatarURL := user.AvatarURL
 	vipType := 0
+	cookieActuallyValid := true
 
-	// 尝试用网易云API刷新用户信息（失败不影响登录状态）
 	netease := service.NewNeteaseService("http://127.0.0.1:3000")
 	cleanCookie := service.CleanCookie(user.Cookie)
 	accountBody, err := netease.GetUserAccount(cleanCookie)
-	if err == nil {
+
+	// 检查 API 调用结果
+	if err != nil {
+		// API 调用失败，cookie 实际已失效
+		cookieActuallyValid = false
+	} else {
 		var accountResult map[string]interface{}
-		if json.Unmarshal(accountBody, &accountResult) == nil {
-			var profile map[string]interface{}
-			if data, ok := accountResult["data"].(map[string]interface{}); ok {
-				profile, _ = data["profile"].(map[string]interface{})
-			}
-			if profile == nil {
-				profile, _ = accountResult["profile"].(map[string]interface{})
-			}
-			if profile != nil {
-				if n, ok := profile["nickname"].(string); ok && n != "" {
-					nickname = n
+		if json.Unmarshal(accountBody, &accountResult) != nil {
+			// JSON 解析失败
+			cookieActuallyValid = false
+		} else {
+			// 检查是否有错误码（如 301 表示 cookie 失效）
+			if code, ok := accountResult["code"].(float64); ok && code != 200 {
+				cookieActuallyValid = false
+			} else {
+				// 尝试获取用户信息
+				var profile map[string]interface{}
+				if data, ok := accountResult["data"].(map[string]interface{}); ok {
+					profile, _ = data["profile"].(map[string]interface{})
 				}
-				if a, ok := profile["avatarUrl"].(string); ok && a != "" {
-					avatarURL = a
+				if profile == nil {
+					profile, _ = accountResult["profile"].(map[string]interface{})
 				}
-				if vt, ok := profile["vipType"].(float64); ok {
-					vipType = int(vt)
+				if profile == nil {
+					// 无法获取用户信息
+					cookieActuallyValid = false
+				} else {
+					// 成功获取用户信息，更新缓存
+					if n, ok := profile["nickname"].(string); ok && n != "" {
+						nickname = n
+					}
+					if a, ok := profile["avatarUrl"].(string); ok && a != "" {
+						avatarURL = a
+					}
+					if vt, ok := profile["vipType"].(float64); ok {
+						vipType = int(vt)
+					}
 				}
 			}
 		}
+	}
+
+	// 如果 cookie 实际已失效，清除数据库中的用户信息
+	if !cookieActuallyValid {
+		db.ClearUserForSystem(systemUserID)
+		c.JSON(http.StatusOK, gin.H{
+			"logged_in":    false,
+			"cookie_valid": false,
+		})
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{

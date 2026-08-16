@@ -41,6 +41,13 @@
         <h2>网易云音乐登录</h2>
         <p class="subtitle">登录后享受个性化推荐和歌单同步</p>
 
+        <!-- 退出系统登录按钮 -->
+        <div class="system-logout-section" style="margin-bottom: 24px;">
+          <button @click="handleSystemLogout" class="system-logout-btn">
+            退出系统登录
+          </button>
+        </div>
+
         <div class="login-tabs">
           <button
             :class="{ active: loginMethod === 'qr' }"
