@@ -695,16 +695,16 @@ func CleanCookie(rawCookie string) string {
 
 // GetUserAccount 通过 /user/account 获取用户信息
 func (s *NeteaseService) GetUserAccount(cookie string) ([]byte, error) {
+	// NeteaseCloudMusicApi 需要 cookie 作为 query 参数传递
 	reqURL := addDeviceParams(fmt.Sprintf("%s/user/account", s.baseURL))
+	if cookie != "" {
+		reqURL += "&cookie=" + url.QueryEscape(cookie)
+	}
 	req, err := http.NewRequest("GET", reqURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("创建请求失败: %w", err)
 	}
 	setDeviceHeaders(req)
-
-	if cookie != "" {
-		req.Header.Set("Cookie", cookie)
-	}
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {

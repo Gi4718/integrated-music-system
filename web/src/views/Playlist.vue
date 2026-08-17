@@ -121,7 +121,7 @@ const isPlaylistCollected = computed(() => {
 const loadPlaylists = async () => {
   try {
     const res = await playlistAPI.getUserPlaylists()
-    userPlaylists.value = res.data.playlists || []
+    userPlaylists.value = res.data.data || res.data.playlists || []
 
     // 检查 URL 参数中是否有歌单 ID
     const playlistId = route.query.id
