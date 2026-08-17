@@ -10,6 +10,12 @@ import (
 	"time"
 )
 
+// 固定的设备标识，让网易云API认为是同一个设备
+const (
+	fixedRealIP = "192.168.1.100"
+	fixedUA     = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+
 type NeteaseService struct {
 	baseURL    string
 	httpClient *http.Client
@@ -24,9 +30,36 @@ func NewNeteaseService(baseURL string) *NeteaseService {
 	}
 }
 
+// addDeviceParams 给URL添加固定设备标识参数
+func addDeviceParams(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	q := u.Query()
+	if q.Get("realIP") == "" {
+		q.Set("realIP", fixedRealIP)
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+// setDeviceHeaders 给请求添加固定设备标识头
+func setDeviceHeaders(req *http.Request) {
+	req.Header.Set("User-Agent", fixedUA)
+	req.Header.Set("X-Real-IP", fixedRealIP)
+}
+
 // QRKey 获取二维码登录 key
 func (s *NeteaseService) QRKey() (string, error) {
-	resp, err := s.httpClient.Get(fmt.Sprintf("%s/login/qr/key?timerstamp=%d", s.baseURL, time.Now().UnixMilli()))
+	reqURL := addDeviceParams(fmt.Sprintf("%s/login/qr/key?timerstamp=%d", s.baseURL, time.Now().UnixMilli()))
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("创建请求失败: %w", err)
+	}
+	setDeviceHeaders(req)
+
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("请求二维码 key 失败: %w", err)
 	}
@@ -51,7 +84,14 @@ func (s *NeteaseService) QRKey() (string, error) {
 
 // QRCode 生成二维码图片
 func (s *NeteaseService) QRCode(key string) (string, error) {
-	resp, err := s.httpClient.Get(fmt.Sprintf("%s/login/qr/create?key=%s&qrimg=true", s.baseURL, url.QueryEscape(key)))
+	reqURL := addDeviceParams(fmt.Sprintf("%s/login/qr/create?key=%s&qrimg=true", s.baseURL, url.QueryEscape(key)))
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("创建请求失败: %w", err)
+	}
+	setDeviceHeaders(req)
+
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("请求二维码失败: %w", err)
 	}
@@ -76,7 +116,14 @@ func (s *NeteaseService) QRCode(key string) (string, error) {
 
 // CheckQR 检查二维码扫描状态
 func (s *NeteaseService) CheckQR(key string) (int, string, string, error) {
-	resp, err := s.httpClient.Get(fmt.Sprintf("%s/login/qr/check?key=%s&timerstamp=%d", s.baseURL, url.QueryEscape(key), time.Now().UnixMilli()))
+	reqURL := addDeviceParams(fmt.Sprintf("%s/login/qr/check?key=%s&timerstamp=%d", s.baseURL, url.QueryEscape(key), time.Now().UnixMilli()))
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return 0, "", "", fmt.Errorf("创建请求失败: %w", err)
+	}
+	setDeviceHeaders(req)
+
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return 0, "", "", fmt.Errorf("请求检查状态失败: %w", err)
 	}
@@ -138,7 +185,14 @@ func (s *NeteaseService) SearchSongs(keyword string, limit int, offset int) ([]b
 	params.Set("limit", fmt.Sprintf("%d", limit))
 	params.Set("offset", fmt.Sprintf("%d", offset))
 
-	resp, err := s.httpClient.Get(fmt.Sprintf("%s/search?%s", s.baseURL, params.Encode()))
+	reqURL := addDeviceParams(fmt.Sprintf("%s/search?%s", s.baseURL, params.Encode()))
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("创建请求失败: %w", err)
+	}
+	setDeviceHeaders(req)
+
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("搜索失败: %w", err)
 	}
@@ -154,10 +208,12 @@ func (s *NeteaseService) SearchSongs(keyword string, limit int, offset int) ([]b
 
 // GetSongURL 获取歌曲播放 URL
 func (s *NeteaseService) GetSongURL(songID int, br int, cookie string) ([]byte, error) {
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s/song/url?id=%d&br=%d", s.baseURL, songID, br), nil)
+	reqURL := addDeviceParams(fmt.Sprintf("%s/song/url?id=%d&br=%d", s.baseURL, songID, br))
+	req, err := http.NewRequest("GET", reqURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("创建请求失败: %w", err)
 	}
+	setDeviceHeaders(req)
 
 	if cookie != "" {
 		req.Header.Set("Cookie", cookie)
@@ -179,7 +235,14 @@ func (s *NeteaseService) GetSongURL(songID int, br int, cookie string) ([]byte, 
 
 // GetSongDetail 获取歌曲详情
 func (s *NeteaseService) GetSongDetail(songID int) ([]byte, error) {
-	resp, err := s.httpClient.Get(fmt.Sprintf("%s/song/detail?ids=%d", s.baseURL, songID))
+	reqURL := addDeviceParams(fmt.Sprintf("%s/song/detail?ids=%d", s.baseURL, songID))
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("创建请求失败: %w", err)
+	}
+	setDeviceHeaders(req)
+
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("获取歌曲详情失败: %w", err)
 	}
@@ -195,7 +258,14 @@ func (s *NeteaseService) GetSongDetail(songID int) ([]byte, error) {
 
 // GetSongDetailBatch 批量获取歌曲详情
 func (s *NeteaseService) GetSongDetailBatch(ids string) ([]byte, error) {
-	resp, err := s.httpClient.Get(fmt.Sprintf("%s/song/detail?ids=%s", s.baseURL, ids))
+	reqURL := addDeviceParams(fmt.Sprintf("%s/song/detail?ids=%s", s.baseURL, ids))
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("创建请求失败: %w", err)
+	}
+	setDeviceHeaders(req)
+
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("批量获取歌曲详情失败: %w", err)
 	}
@@ -211,7 +281,14 @@ func (s *NeteaseService) GetSongDetailBatch(ids string) ([]byte, error) {
 
 // GetLyric 获取歌词
 func (s *NeteaseService) GetLyric(songID int) ([]byte, error) {
-	resp, err := s.httpClient.Get(fmt.Sprintf("%s/lyric?id=%d", s.baseURL, songID))
+	reqURL := addDeviceParams(fmt.Sprintf("%s/lyric?id=%d", s.baseURL, songID))
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("创建请求失败: %w", err)
+	}
+	setDeviceHeaders(req)
+
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("获取歌词失败: %w", err)
 	}
@@ -227,7 +304,14 @@ func (s *NeteaseService) GetLyric(songID int) ([]byte, error) {
 
 // GetUserPlaylists 获取用户歌单
 func (s *NeteaseService) GetUserPlaylists(uid int) ([]byte, error) {
-	resp, err := s.httpClient.Get(fmt.Sprintf("%s/user/playlist?uid=%d", s.baseURL, uid))
+	reqURL := addDeviceParams(fmt.Sprintf("%s/user/playlist?uid=%d", s.baseURL, uid))
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("创建请求失败: %w", err)
+	}
+	setDeviceHeaders(req)
+
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("获取用户歌单失败: %w", err)
 	}
@@ -243,10 +327,12 @@ func (s *NeteaseService) GetUserPlaylists(uid int) ([]byte, error) {
 
 // GetPlaylistDetail 获取歌单详情
 func (s *NeteaseService) GetPlaylistDetail(playlistID int, cookie string) ([]byte, error) {
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s/playlist/detail?id=%d", s.baseURL, playlistID), nil)
+	reqURL := addDeviceParams(fmt.Sprintf("%s/playlist/detail?id=%d", s.baseURL, playlistID))
+	req, err := http.NewRequest("GET", reqURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("创建请求失败: %w", err)
 	}
+	setDeviceHeaders(req)
 
 	if cookie != "" {
 		req.Header.Set("Cookie", cookie)
@@ -268,10 +354,12 @@ func (s *NeteaseService) GetPlaylistDetail(playlistID int, cookie string) ([]byt
 
 // SubscribePlaylist 收藏歌单
 func (s *NeteaseService) SubscribePlaylist(playlistID int, cookie string) ([]byte, error) {
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/playlist/subscribe?id=%d", s.baseURL, playlistID), nil)
+	reqURL := addDeviceParams(fmt.Sprintf("%s/playlist/subscribe?id=%d", s.baseURL, playlistID))
+	req, err := http.NewRequest("POST", reqURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("创建请求失败: %w", err)
 	}
+	setDeviceHeaders(req)
 
 	if cookie != "" {
 		req.Header.Set("Cookie", cookie)
@@ -293,12 +381,16 @@ func (s *NeteaseService) SubscribePlaylist(playlistID int, cookie string) ([]byt
 
 // GetLoginStatus 获取登录状态
 func (s *NeteaseService) GetLoginStatus(cookie string) ([]byte, error) {
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s/login/status", s.baseURL), nil)
+	reqURL := addDeviceParams(fmt.Sprintf("%s/login/status", s.baseURL))
+	req, err := http.NewRequest("GET", reqURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("创建请求失败: %w", err)
 	}
+	setDeviceHeaders(req)
 
-	req.Header.Set("Cookie", cookie)
+	if cookie != "" {
+		req.Header.Set("Cookie", cookie)
+	}
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
@@ -316,7 +408,14 @@ func (s *NeteaseService) GetLoginStatus(cookie string) ([]byte, error) {
 
 // SendSMSCode 发送手机验证码
 func (s *NeteaseService) SendSMSCode(phone string) ([]byte, error) {
-	resp, err := s.httpClient.Get(fmt.Sprintf("%s/captcha/sent?phone=%s", s.baseURL, url.QueryEscape(phone)))
+	reqURL := addDeviceParams(fmt.Sprintf("%s/captcha/sent?phone=%s", s.baseURL, url.QueryEscape(phone)))
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("创建请求失败: %w", err)
+	}
+	setDeviceHeaders(req)
+
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("发送验证码失败: %w", err)
 	}
@@ -332,7 +431,14 @@ func (s *NeteaseService) SendSMSCode(phone string) ([]byte, error) {
 
 // VerifySMSCode 验证手机验证码
 func (s *NeteaseService) VerifySMSCode(phone, captcha string) ([]byte, error) {
-	resp, err := s.httpClient.Get(fmt.Sprintf("%s/captcha/verify?phone=%s&captcha=%s", s.baseURL, url.QueryEscape(phone), url.QueryEscape(captcha)))
+	reqURL := addDeviceParams(fmt.Sprintf("%s/captcha/verify?phone=%s&captcha=%s", s.baseURL, url.QueryEscape(phone), url.QueryEscape(captcha)))
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("创建请求失败: %w", err)
+	}
+	setDeviceHeaders(req)
+
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("验证验证码失败: %w", err)
 	}
@@ -348,7 +454,14 @@ func (s *NeteaseService) VerifySMSCode(phone, captcha string) ([]byte, error) {
 
 // LoginByPhone 手机号登录
 func (s *NeteaseService) LoginByPhone(phone, captcha string) ([]byte, error) {
-	resp, err := s.httpClient.Get(fmt.Sprintf("%s/login/cellphone?phone=%s&captcha=%s", s.baseURL, url.QueryEscape(phone), url.QueryEscape(captcha)))
+	reqURL := addDeviceParams(fmt.Sprintf("%s/login/cellphone?phone=%s&captcha=%s", s.baseURL, url.QueryEscape(phone), url.QueryEscape(captcha)))
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("创建请求失败: %w", err)
+	}
+	setDeviceHeaders(req)
+
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("手机号登录失败: %w", err)
 	}
@@ -364,7 +477,14 @@ func (s *NeteaseService) LoginByPhone(phone, captcha string) ([]byte, error) {
 
 // LoginByPhonePassword 手机号密码登录
 func (s *NeteaseService) LoginByPhonePassword(phone, password string) ([]byte, error) {
-	resp, err := s.httpClient.Get(fmt.Sprintf("%s/login/cellphone?phone=%s&password=%s", s.baseURL, url.QueryEscape(phone), url.QueryEscape(password)))
+	reqURL := addDeviceParams(fmt.Sprintf("%s/login/cellphone?phone=%s&password=%s", s.baseURL, url.QueryEscape(phone), url.QueryEscape(password)))
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("创建请求失败: %w", err)
+	}
+	setDeviceHeaders(req)
+
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("手机号密码登录失败: %w", err)
 	}
@@ -380,7 +500,14 @@ func (s *NeteaseService) LoginByPhonePassword(phone, password string) ([]byte, e
 
 // LoginByPhoneWith2FA 带二次验证的手机号登录
 func (s *NeteaseService) LoginByPhoneWith2FA(phone, captcha, code string) ([]byte, error) {
-	resp, err := s.httpClient.Get(fmt.Sprintf("%s/login/cellphone?phone=%s&captcha=%s&code=%s", s.baseURL, url.QueryEscape(phone), url.QueryEscape(captcha), url.QueryEscape(code)))
+	reqURL := addDeviceParams(fmt.Sprintf("%s/login/cellphone?phone=%s&captcha=%s&code=%s", s.baseURL, url.QueryEscape(phone), url.QueryEscape(captcha), url.QueryEscape(code)))
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("创建请求失败: %w", err)
+	}
+	setDeviceHeaders(req)
+
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("二次验证登录失败: %w", err)
 	}
@@ -396,7 +523,14 @@ func (s *NeteaseService) LoginByPhoneWith2FA(phone, captcha, code string) ([]byt
 
 // LoginByEmail 邮箱登录
 func (s *NeteaseService) LoginByEmail(email, password string) ([]byte, error) {
-	resp, err := s.httpClient.Get(fmt.Sprintf("%s/login?email=%s&password=%s", s.baseURL, url.QueryEscape(email), url.QueryEscape(password)))
+	reqURL := addDeviceParams(fmt.Sprintf("%s/login?email=%s&password=%s", s.baseURL, url.QueryEscape(email), url.QueryEscape(password)))
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("创建请求失败: %w", err)
+	}
+	setDeviceHeaders(req)
+
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("邮箱登录失败: %w", err)
 	}
@@ -412,7 +546,14 @@ func (s *NeteaseService) LoginByEmail(email, password string) ([]byte, error) {
 
 // LoginByQQ QQ 登录（需要 OAuth 回调）
 func (s *NeteaseService) LoginByQQ(code string) ([]byte, error) {
-	resp, err := s.httpClient.Get(fmt.Sprintf("%s/login/qq?code=%s", s.baseURL, url.QueryEscape(code)))
+	reqURL := addDeviceParams(fmt.Sprintf("%s/login/qq?code=%s", s.baseURL, url.QueryEscape(code)))
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("创建请求失败: %w", err)
+	}
+	setDeviceHeaders(req)
+
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("QQ 登录失败: %w", err)
 	}
@@ -428,10 +569,12 @@ func (s *NeteaseService) LoginByQQ(code string) ([]byte, error) {
 
 // GetRecommendSongs 获取推荐歌曲
 func (s *NeteaseService) GetRecommendSongs(cookie string) ([]byte, error) {
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s/recommend/songs", s.baseURL), nil)
+	reqURL := addDeviceParams(fmt.Sprintf("%s/recommend/songs", s.baseURL))
+	req, err := http.NewRequest("GET", reqURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("创建请求失败: %w", err)
 	}
+	setDeviceHeaders(req)
 
 	if cookie != "" {
 		req.Header.Set("Cookie", cookie)
@@ -453,10 +596,12 @@ func (s *NeteaseService) GetRecommendSongs(cookie string) ([]byte, error) {
 
 // GetRecommendPlaylists 获取推荐歌单
 func (s *NeteaseService) GetRecommendPlaylists(cookie string) ([]byte, error) {
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s/personalized", s.baseURL), nil)
+	reqURL := addDeviceParams(fmt.Sprintf("%s/personalized", s.baseURL))
+	req, err := http.NewRequest("GET", reqURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("创建请求失败: %w", err)
 	}
+	setDeviceHeaders(req)
 
 	if cookie != "" {
 		req.Header.Set("Cookie", cookie)
