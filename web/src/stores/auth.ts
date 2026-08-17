@@ -19,9 +19,14 @@ export const useAuthStore = defineStore('auth', () => {
   // 网易云 vipType 数字映射
   const vipTypeMap: Record<number, string> = {
     0: '',
-    110: '黑胶VIP',
     100: '音乐包',
+    110: '黑胶VIP',
+    112: '黑胶VIP',
     120: '黑胶VIP',
+    130: '黑胶VIP',
+    140: '黑胶VIP',
+    150: '黑胶VIP',
+    160: '黑胶VIP',
   }
 
   const checkLoginStatus = async () => {

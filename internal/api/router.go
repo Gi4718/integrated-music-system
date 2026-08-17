@@ -165,6 +165,18 @@ func SetupRouter(cfg *config.Config) *gin.Engine {
 			settings.POST("/ssl/reload", reloadSSL)
 		}
 
+		// 网易云歌单路由（使用可选 JWT 中间件，支持扫码登录用户）
+		playlist := api.Group("/playlist")
+		playlist.Use(OptionalAuthMiddleware())
+		{
+			playlist.GET("/user", getUserPlaylists)
+			playlist.GET("/detail", getPlaylistDetail)
+			playlist.POST("/subscribe", subscribePlaylist)
+			playlist.GET("/sync", GetSyncPlaylists)
+			playlist.POST("/sync", UpdateSyncPlaylists)
+			playlist.POST("/sync/toggle", ToggleSyncPlaylist)
+		}
+
 		// 需要 JWT 认证的路由组
 		authorized := api.Group("")
 		authorized.Use(AuthMiddleware())
@@ -198,16 +210,6 @@ func SetupRouter(cfg *config.Config) *gin.Engine {
 				download.POST("/verify-metadata", verifyMetadata)
 				download.GET("/history", getDownloadHistory)
 				download.GET("/progress", getDownloadProgress)
-			}
-
-			playlist := authorized.Group("/playlist")
-			{
-				playlist.GET("/user", getUserPlaylists)
-				playlist.GET("/detail", getPlaylistDetail)
-				playlist.POST("/subscribe", subscribePlaylist)
-				playlist.GET("/sync", GetSyncPlaylists)
-				playlist.POST("/sync", UpdateSyncPlaylists)
-				playlist.POST("/sync/toggle", ToggleSyncPlaylist)
 			}
 
 			player := authorized.Group("/player")
