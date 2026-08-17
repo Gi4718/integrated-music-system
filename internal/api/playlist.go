@@ -15,7 +15,8 @@ import (
 )
 
 func getUserPlaylists(c *gin.Context) {
-	user, err := db.GetCurrentUser()
+	systemUserID := getSystemUserID(c)
+	user, err := db.GetCurrentUserForSystem(systemUserID)
 	if err != nil || user == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "未登录"})
 		return

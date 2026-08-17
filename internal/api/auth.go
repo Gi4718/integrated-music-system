@@ -24,7 +24,7 @@ func getSystemUserID(c *gin.Context) int {
 	}
 	// Fallback: 查询第一个系统用户
 	var firstUserID int
-	err := db.QueryRow("SELECT id FROM system_users ORDER BY id LIMIT 1").Scan(&firstUserID)
+	err := db.GetDB().QueryRow("SELECT id FROM system_users ORDER BY id LIMIT 1").Scan(&firstUserID)
 	if err == nil && firstUserID > 0 {
 		return firstUserID
 	}
@@ -184,16 +184,52 @@ func getLoginStatus(c *gin.Context) {
 		return
 	}
 
-	// cookie 未过期，直接返回已登录状态
-	// 不再调用网易云API验证，避免验证失败误判导致清除用户数据
+	// cookie 未过期，调用网易云API获取最新用户信息（包括VIP状态）
+	// 即使API调用失败，也返回已登录状态，但不清除用户数据
+	netease := service.NewNeteaseService("http://127.0.0.1:3000")
+	accountBody, err := netease.GetUserAccount(user.Cookie)
+	
+	vipType := 0
+	nickname := user.Nickname
+	avatarURL := user.AvatarURL
+	
+	if err == nil {
+		var accountResult map[string]interface{}
+		if json.Unmarshal(accountBody, &accountResult) == nil {
+			var profile map[string]interface{}
+			if data, ok := accountResult["data"].(map[string]interface{}); ok {
+				profile, _ = data["profile"].(map[string]interface{})
+			}
+			if profile == nil {
+				profile, _ = accountResult["profile"].(map[string]interface{})
+			}
+			
+			if profile != nil {
+				if nick, ok := profile["nickname"].(string); ok && nick != "" {
+					nickname = nick
+				}
+				if avatar, ok := profile["avatarUrl"].(string); ok && avatar != "" {
+					avatarURL = avatar
+				} else if avatar, ok := profile["avatar"].(string); ok && avatar != "" {
+					avatarURL = avatar
+				}
+				if vt, ok := profile["vipType"].(float64); ok {
+					vipType = int(vt)
+				}
+			}
+		}
+	}
+	
 	c.JSON(http.StatusOK, gin.H{
 		"logged_in":      true,
 		"cookie_valid":   true,
 		"cookie_expires": user.CookieExpires.Format(time.RFC3339),
+		"vipType":        vipType,
 		"user": gin.H{
 			"user_id":  user.UserID,
-			"nickname": user.Nickname,
-			"avatar":   user.AvatarURL,
+			"nickname": nickname,
+			"avatar":   avatarURL,
+			"vipType":  vipType,
 		},
 	})
 }
