@@ -181,6 +181,44 @@ func AuthMiddleware() gin.HandlerFunc {
 	}
 }
 
+// OptionalAuthMiddleware 可选认证中间件（不强制要求登录，但如果有 token 则解析用户信息）
+func OptionalAuthMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// 获取token（优先从 Authorization header，其次从 query 参数）
+		tokenString := c.GetHeader("Authorization")
+		if tokenString == "" {
+			tokenString = c.Query("token")
+		}
+
+		// 如果有 token，尝试解析用户信息
+		if tokenString != "" {
+			// 移除 "Bearer " 前缀
+			if len(tokenString) > 7 && tokenString[:7] == "Bearer " {
+				tokenString = tokenString[7:]
+			}
+
+			// 验证token
+			token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+				return jwtSecret, nil
+			})
+
+			if err == nil && token.Valid {
+				// 从 token 中提取用户信息并注入到 context
+				if claims, ok := token.Claims.(jwt.MapClaims); ok {
+					if userID, ok := claims["user_id"].(float64); ok {
+						c.Set("system_user_id", int(userID))
+					}
+					if username, ok := claims["username"].(string); ok {
+						c.Set("system_username", username)
+					}
+				}
+			}
+		}
+
+		c.Next()
+	}
+}
+
 // hashPassword 使用bcrypt加密密码
 func hashPassword(password string) (string, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)

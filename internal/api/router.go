@@ -133,8 +133,9 @@ func SetupRouter(cfg *config.Config) *gin.Engine {
 		api.GET("/system/check", CheckSystemUser)
 		api.POST("/system/user/register", RegisterUser) // 多用户注册
 
-		// 网易云认证路由（无需 JWT 中间件，使用数据库 cookie 认证）
+		// 网易云认证路由（使用可选 JWT 中间件，有 token 则解析用户信息）
 		auth := api.Group("/auth")
+		auth.Use(OptionalAuthMiddleware())
 		{
 			auth.GET("/qr-key", getQRKey)
 			auth.GET("/qr-code", getQRCode)
