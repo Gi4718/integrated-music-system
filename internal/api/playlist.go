@@ -34,21 +34,39 @@ func getUserPlaylists(c *gin.Context) {
 	var playlists []map[string]interface{}
 	if playlistData, ok := result["playlist"].([]interface{}); ok {
 		for _, p := range playlistData {
-			playlist := p.(map[string]interface{})
+			if p == nil {
+				continue
+			}
+			playlist, ok := p.(map[string]interface{})
+			if !ok || playlist == nil {
+				continue
+			}
+			
+			// 安全获取字段值
+			id, _ := playlist["id"].(float64)
+			name, _ := playlist["name"].(string)
+			trackCount, _ := playlist["trackCount"].(float64)
+			cover, _ := playlist["coverImgUrl"].(string)
+			
+			// 跳过无效数据
+			if id == 0 || name == "" {
+				continue
+			}
+			
 			pl := map[string]interface{}{
-				"id":          playlist["id"],
-				"name":        playlist["name"],
-				"track_count": playlist["trackCount"],
-				"cover":       playlist["coverImgUrl"],
+				"id":          id,
+				"name":        name,
+				"track_count": trackCount,
+				"cover":       cover,
 			}
 			playlists = append(playlists, pl)
 
 			// 缓存到数据库
 			db.SavePlaylist(&model.Playlist{
-				PlaylistID: int(playlist["id"].(float64)),
-				Name:       playlist["name"].(string),
+				PlaylistID: int(id),
+				Name:       name,
 				CreatorID:  user.UserID,
-				TrackCount: int(playlist["trackCount"].(float64)),
+				TrackCount: int(trackCount),
 			})
 		}
 	}

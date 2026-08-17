@@ -561,7 +561,7 @@ const loadUserPlaylists = async () => {
       userPlaylists.value = response.data.data.map((p: any) => ({
         id: p.id,
         name: p.name,
-        trackCount: p.trackCount || 0
+        trackCount: p.track_count || p.trackCount || 0
       }))
     }
   } catch (error: any) {

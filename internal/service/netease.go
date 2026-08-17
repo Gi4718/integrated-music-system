@@ -101,22 +101,30 @@ func (s *NeteaseService) CheckQR(key string) (int, string, string, error) {
 		message = m
 	}
 
+	// 优先从 HTTP 响应头的 Set-Cookie 获取完整的 cookie
 	var cookie string
-	switch v := raw["cookie"].(type) {
-	case string:
-		cookie = v
-	case []interface{}:
-		parts := make([]string, 0, len(v))
-		for _, item := range v {
-			if s, ok := item.(string); ok && s != "" {
-				parts = append(parts, s)
+	setCookies := resp.Header.Values("Set-Cookie")
+	if len(setCookies) > 0 {
+		// 合并所有 Set-Cookie 头
+		cookie = strings.Join(setCookies, "; ")
+	} else {
+		// 备用：从 JSON body 获取
+		switch v := raw["cookie"].(type) {
+		case string:
+			cookie = v
+		case []interface{}:
+			parts := make([]string, 0, len(v))
+			for _, item := range v {
+				if s, ok := item.(string); ok && s != "" {
+					parts = append(parts, s)
+				}
 			}
-		}
-		for i, p := range parts {
-			if i > 0 {
-				cookie += "; "
+			for i, p := range parts {
+				if i > 0 {
+					cookie += "; "
+				}
+				cookie += p
 			}
-			cookie += p
 		}
 	}
 
