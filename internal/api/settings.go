@@ -96,7 +96,7 @@ func updateSettings(c *gin.Context) {
 		"delete_removed", "playlist_format", "resume_downloads", "auto_data_complete",
 		"data_complete_interval", "data_complete_unit", "data_complete_cover",
 		"data_complete_lyrics", "data_complete_artist", "last_sync_time", "next_sync_time",
-		"disable_page_animation",
+		"disable_page_animation", "sync_mode", "sync_weekdays", "sync_time",
 	}
 
 	// 全局设置（所有用户共享）
@@ -104,7 +104,7 @@ func updateSettings(c *gin.Context) {
 		"ssl_mode", "ssl_cert_path", "ssl_key_path", "ssl_chain_path",
 		"http_port", "https_port", "ssl_redirect", "acme_provider", "acme_email",
 		"acme_domain", "acme_account_id", "acme_secret_key", "acme_token", "acme_region_id",
-		"acme_fields", "sync_mode", "sync_weekdays", "sync_time", "multi_user_enabled",
+		"acme_fields", "multi_user_enabled",
 	}
 
 	for key, value := range req {

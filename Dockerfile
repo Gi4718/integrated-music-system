@@ -22,8 +22,6 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o endfield-music-cl
 # Stage 2: Build Vue frontend
 FROM node:20-alpine AS vue-builder
 
-ENV NPM_CONFIG_REGISTRY=https://registry.npmmirror.com
-
 WORKDIR /build
 COPY web/package.json web/package-lock.json* ./
 RUN npm install

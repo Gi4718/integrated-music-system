@@ -22,8 +22,24 @@ func InitDB(dbPath string) error {
 		return fmt.Errorf("打开数据库失败: %w", err)
 	}
 
+	// 配置 SQLite 连接池（只允许 1 个连接，避免并发锁定）
+	dbConn.SetMaxOpenConns(1)
+	dbConn.SetMaxIdleConns(1)
+	dbConn.SetConnMaxLifetime(0)
+
 	if err := dbConn.Ping(); err != nil {
 		return fmt.Errorf("数据库连接失败: %w", err)
+	}
+
+	// 启用 WAL 模式和外键约束
+	if _, err := dbConn.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		return fmt.Errorf("启用 WAL 模式失败: %w", err)
+	}
+	if _, err := dbConn.Exec("PRAGMA foreign_keys=ON"); err != nil {
+		return fmt.Errorf("启用外键约束失败: %w", err)
+	}
+	if _, err := dbConn.Exec("PRAGMA busy_timeout=5000"); err != nil {
+		return fmt.Errorf("设置 busy_timeout 失败: %w", err)
 	}
 
 	if err := initTables(); err != nil {

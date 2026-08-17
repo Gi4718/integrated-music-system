@@ -152,8 +152,9 @@ func SetupRouter(cfg *config.Config) *gin.Engine {
 			auth.GET("/qq/url", getQQAuthURL)
 		}
 
-		// 设置路由（无需 JWT 中间件，使用数据库 cookie 认证）
+		// 设置路由（使用可选 JWT 中间件）
 		settings := api.Group("/settings")
+		settings.Use(OptionalAuthMiddleware())
 		{
 			settings.GET("", getSettings)
 			settings.POST("", updateSettings)
@@ -175,6 +176,7 @@ func SetupRouter(cfg *config.Config) *gin.Engine {
 			playlist.GET("/sync", GetSyncPlaylists)
 			playlist.POST("/sync", UpdateSyncPlaylists)
 			playlist.POST("/sync/toggle", ToggleSyncPlaylist)
+			playlist.POST("/sync/trigger", TriggerManualSync)
 		}
 
 		// 需要 JWT 认证的路由组

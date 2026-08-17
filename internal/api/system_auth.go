@@ -211,6 +211,9 @@ func OptionalAuthMiddleware() gin.HandlerFunc {
 					if username, ok := claims["username"].(string); ok {
 						c.Set("system_username", username)
 					}
+					if role, ok := claims["role"].(string); ok {
+						c.Set("role", role)
+					}
 				}
 			}
 		}

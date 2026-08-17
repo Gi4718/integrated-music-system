@@ -47,6 +47,9 @@
           <span class="setting-desc">开启后将按设定规则自动同步歌单到本地</span>
         </div>
         <div class="setting-control-row">
+          <button class="trigger-sync-btn" @click="triggerSync" :disabled="syncing">
+            {{ syncing ? '同步中...' : '立即同步' }}
+          </button>
           <label class="switch">
             <input type="checkbox" v-model="settings.autoSync" />
             <span class="slider"></span>
@@ -532,6 +535,7 @@ const settings = ref({
 const userPlaylists = ref<Array<{ id: number; name: string; trackCount: number }>>([])
 const selectedSyncPlaylists = ref<number[]>([])
 const loadingPlaylists = ref(false)
+const syncing = ref(false)
 
 const weekdays = [
   { value: 1, label: '周一' },
@@ -826,7 +830,7 @@ const loadPlugins = async () => {
 const loadSettings = async () => {
   try {
     const res = await settingsAPI.getSettings()
-    const s = res.data.settings
+    const s = res.data.settings || res.data
     if (s) {
       settings.value.downloadPath = s.download_path || ''
       settings.value.songFormat = s.song_format || '{songName} - {artist}'
@@ -961,18 +965,43 @@ const saveSyncSettings = async () => {
       data_complete_lyrics: settings.value.dataCompleteLyrics.toString(),
       data_complete_artist: settings.value.dataCompleteArtist.toString()
     }
-    await settingsAPI.updateSettings(data)
+    console.log('保存设置数据:', data)
+    const settingsRes = await settingsAPI.updateSettings(data)
+    console.log('设置保存结果:', settingsRes.data)
     
     // 保存选中的同步歌单
-    await playlistAPI.updateSyncPlaylists(selectedSyncPlaylists.value)
+    console.log('保存同步歌单:', selectedSyncPlaylists.value)
+    const syncRes = await playlistAPI.updateSyncPlaylists(selectedSyncPlaylists.value)
+    console.log('歌单保存结果:', syncRes.data)
     
     syncSavedTip.value = true
     await loadSettings()
     setTimeout(() => { syncSavedTip.value = false }, 2000)
-  } catch {
-    ElMessage.error('保存失败')
+  } catch (error: any) {
+    console.error('保存失败详情:', error)
+    console.error('错误响应:', error.response?.data)
+    ElMessage.error('保存失败: ' + (error.response?.data?.error || error.response?.data?.details?.join(', ') || error.message))
   } finally {
     savingSync.value = false
+  }
+}
+
+// 手动触发同步
+const triggerSync = async () => {
+  syncing.value = true
+  try {
+    const res = await playlistAPI.triggerManualSync()
+    if (res.data.success) {
+      ElMessage.success('同步任务已启动')
+      await loadSettings()
+    } else {
+      ElMessage.error(res.data.error || '同步失败')
+    }
+  } catch (error: any) {
+    console.error('触发同步失败:', error)
+    ElMessage.error('触发同步失败: ' + (error.response?.data?.error || error.message))
+  } finally {
+    syncing.value = false
   }
 }
 
@@ -1502,6 +1531,28 @@ watch(() => settings.value.autoSync, async (newVal) => {
   padding: 20px 0 0 0;
   margin-top: 16px;
   border-top: 1px solid var(--border-color);
+}
+
+.trigger-sync-btn {
+  padding: 6px 16px;
+  background: #409eff;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.2s;
+  margin-right: 12px;
+}
+
+.trigger-sync-btn:hover {
+  opacity: 0.85;
+}
+
+.trigger-sync-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .save-btn {

@@ -1681,7 +1681,7 @@ func (e *Engine) settingsWatcher(ctx context.Context) {
 				fmt.Println("[engine] schedule sync triggered on startup")
 				lastSyncTime = time.Now()
 				db.SetSetting("last_sync_time", lastSyncTime.Format(time.RFC3339))
-				go e.runAutoSync(ctx)
+				go e.RunAutoSync(ctx)
 			}
 		} else {
 			// 间隔模式
@@ -1692,7 +1692,7 @@ func (e *Engine) settingsWatcher(ctx context.Context) {
 				db.SetSetting("last_sync_time", lastSyncTime.Format(time.RFC3339))
 				nextTime := lastSyncTime.Add(interval)
 				db.SetSetting("next_sync_time", nextTime.Format(time.RFC3339))
-				go e.runAutoSync(ctx)
+				go e.RunAutoSync(ctx)
 			}
 		}
 	}
@@ -1721,7 +1721,7 @@ func (e *Engine) settingsWatcher(ctx context.Context) {
 					fmt.Println("[engine] schedule sync triggered")
 					now := time.Now()
 					db.SetSetting("last_sync_time", now.Format(time.RFC3339))
-					go e.runAutoSync(ctx)
+					go e.RunAutoSync(ctx)
 				}
 			} else {
 				// 间隔模式
@@ -1732,7 +1732,7 @@ func (e *Engine) settingsWatcher(ctx context.Context) {
 					db.SetSetting("last_sync_time", lastSyncTime.Format(time.RFC3339))
 					nextTime := lastSyncTime.Add(interval)
 					db.SetSetting("next_sync_time", nextTime.Format(time.RFC3339))
-					e.runAutoSync(ctx)
+					e.RunAutoSync(ctx)
 				}
 			}
 		}
@@ -1799,8 +1799,8 @@ func (e *Engine) shouldTriggerScheduleSync() bool {
 	return false
 }
 
-// runAutoSync 执行自动同步：获取用户歌单列表，逐个触发下载
-func (e *Engine) runAutoSync(ctx context.Context) {
+// RunAutoSync 执行自动同步：获取用户歌单列表，逐个触发下载
+func (e *Engine) RunAutoSync(ctx context.Context) {
 	fmt.Println("[autoSync] starting auto sync...")
 
 	// 获取当前用户

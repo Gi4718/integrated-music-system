@@ -123,6 +123,9 @@ export const playlistAPI = {
   },
   toggleSyncPlaylist(playlistId: number, enabled: boolean) {
     return api.post('/playlist/sync/toggle', { playlist_id: playlistId, enabled })
+  },
+  triggerManualSync() {
+    return api.post('/playlist/sync/trigger')
   }
 }
 

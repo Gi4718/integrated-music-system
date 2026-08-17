@@ -7,12 +7,12 @@ import (
 
 // SyncPlaylist 同步歌单
 type SyncPlaylist struct {
-	ID           int
-	PlaylistID   int
-	PlaylistName string
-	UserID       int
-	Enabled      bool
-	CreatedAt    sql.NullTime
+	ID           int            `json:"id"`
+	PlaylistID   int            `json:"playlist_id"`
+	PlaylistName string         `json:"playlist_name"`
+	UserID       int            `json:"user_id"`
+	Enabled      bool           `json:"enabled"`
+	CreatedAt    sql.NullTime   `json:"created_at"`
 }
 
 // GetSyncPlaylists 获取用户的同步歌单列表
@@ -98,21 +98,36 @@ func SyncPlaylistsExist(userID int) (bool, error) {
 
 // BatchUpdateSyncPlaylists 批量更新同步歌单列表
 func BatchUpdateSyncPlaylists(userID int, playlistIDs []int) error {
+	fmt.Printf("[BatchUpdateSyncPlaylists] userID=%d, playlistIDs=%v\n", userID, playlistIDs)
+	
+	// 使用事务确保原子性
+	tx, err := dbConn.Begin()
+	if err != nil {
+		return fmt.Errorf("开始事务失败: %w", err)
+	}
+	defer tx.Rollback()
+
 	// 先删除所有旧记录
-	_, err := dbConn.Exec("DELETE FROM sync_playlists WHERE user_id = ?", userID)
+	_, err = tx.Exec("DELETE FROM sync_playlists WHERE user_id = ?", userID)
 	if err != nil {
 		return fmt.Errorf("删除旧同步歌单失败: %w", err)
 	}
 
 	// 插入新记录
 	for _, playlistID := range playlistIDs {
-		_, err := dbConn.Exec(
+		_, err := tx.Exec(
 			"INSERT INTO sync_playlists (playlist_id, playlist_name, user_id, enabled) VALUES (?, '', ?, 1)",
 			playlistID, userID,
 		)
 		if err != nil {
-			return fmt.Errorf("插入同步歌单失败: %w", err)
+			return fmt.Errorf("插入同步歌单失败 (playlistID=%d): %w", playlistID, err)
 		}
 	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("提交事务失败: %w", err)
+	}
+	
+	fmt.Printf("[BatchUpdateSyncPlaylists] success\n")
 	return nil
 }
