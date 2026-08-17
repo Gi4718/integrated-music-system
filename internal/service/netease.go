@@ -164,8 +164,19 @@ func (s *NeteaseService) CheckQR(key string) (int, string, string, error) {
 	var cookie string
 	setCookies := resp.Header.Values("Set-Cookie")
 	if len(setCookies) > 0 {
-		// 合并所有 Set-Cookie 头
-		cookie = strings.Join(setCookies, "; ")
+		// 从每个 Set-Cookie 头中提取 name=value 对，忽略属性
+		var cookiePairs []string
+		for _, sc := range setCookies {
+			// Set-Cookie 格式: name=value; Path=/; Max-Age=xxx
+			parts := strings.Split(sc, ";")
+			if len(parts) > 0 {
+				firstPart := strings.TrimSpace(parts[0])
+				if strings.Contains(firstPart, "=") {
+					cookiePairs = append(cookiePairs, firstPart)
+				}
+			}
+		}
+		cookie = strings.Join(cookiePairs, "; ")
 	} else {
 		// 备用：从 JSON body 获取
 		switch v := raw["cookie"].(type) {
