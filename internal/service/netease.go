@@ -4,19 +4,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 )
 
-// 固定的设备标识，让网易云API认为是同一个设备
+// 设备标识常量
 const (
-	fixedDeviceID = "a1b2c3d4e5f6g7h8i9j0"
-	fixedOS       = "windows"
-	fixedOSVer    = "10.0.19045"
-	fixedAppVer   = "3.0.18.203732"
-	fixedUA       = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+	fixedOS   = "windows"
+	fixedOSVer = "10.0.19045"
+	fixedAppVer = "3.0.18.203732"
+	fixedUA   = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
 
 type NeteaseService struct {
@@ -33,16 +33,26 @@ func NewNeteaseService(baseURL string) *NeteaseService {
 	}
 }
 
-// addDeviceParams 给URL添加固定设备标识参数
+// generateDeviceID 生成随机的设备ID
+func generateDeviceID() string {
+	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
+	b := make([]byte, 20)
+	for i := range b {
+		b[i] = charset[rand.Intn(len(charset))]
+	}
+	return string(b)
+}
+
+// addDeviceParams 给URL添加设备标识参数
 func addDeviceParams(rawURL string) string {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return rawURL
 	}
 	q := u.Query()
-	// 固定设备ID，让网易云认为是同一设备
+	// 每次请求生成随机设备ID
 	if q.Get("deviceId") == "" {
-		q.Set("deviceId", fixedDeviceID)
+		q.Set("deviceId", generateDeviceID())
 	}
 	if q.Get("os") == "" {
 		q.Set("os", fixedOS)
