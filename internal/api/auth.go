@@ -177,64 +177,17 @@ func getLoginStatus(c *gin.Context) {
 		return
 	}
 
-	// cookie 未过期，尝试用网易云API验证实际有效性
-	nickname := user.Nickname
-	avatarURL := user.AvatarURL
-	vipType := 0
-
-	netease := service.NewNeteaseService("http://127.0.0.1:3000")
-	cleanCookie := service.CleanCookie(user.Cookie)
-	accountBody, err := netease.GetUserAccount(cleanCookie)
-
-	// 只有在 API 明确返回 cookie 失效（code=301）时才清除用户数据
-	// 网络错误、超时等情况不视为 cookie 失效
-	if err == nil {
-		var accountResult map[string]interface{}
-		if json.Unmarshal(accountBody, &accountResult) == nil {
-			// 检查是否有明确的错误码（如 301 表示 cookie 失效）
-			if code, ok := accountResult["code"].(float64); ok && code == 301 {
-				// cookie 明确失效，清除数据库中的用户信息
-				db.ClearUserForSystem(systemUserID)
-				c.JSON(http.StatusOK, gin.H{
-					"logged_in":    false,
-					"cookie_valid": false,
-				})
-				return
-			}
-
-			// 尝试获取用户信息并更新缓存
-			var profile map[string]interface{}
-			if data, ok := accountResult["data"].(map[string]interface{}); ok {
-				profile, _ = data["profile"].(map[string]interface{})
-			}
-			if profile == nil {
-				profile, _ = accountResult["profile"].(map[string]interface{})
-			}
-			if profile != nil {
-				if n, ok := profile["nickname"].(string); ok && n != "" {
-					nickname = n
-				}
-				if a, ok := profile["avatarUrl"].(string); ok && a != "" {
-					avatarURL = a
-				}
-				if vt, ok := profile["vipType"].(float64); ok {
-					vipType = int(vt)
-				}
-			}
-		}
-	}
-	// 其他情况（API 调用失败、JSON 解析失败等）都视为已登录，不主动清除用户数据
-
+	// cookie 未过期，直接返回已登录状态
+	// 不再调用网易云API验证，避免验证失败误判导致清除用户数据
 	c.JSON(http.StatusOK, gin.H{
 		"logged_in":      true,
 		"cookie_valid":   true,
 		"cookie_expires": user.CookieExpires.Format(time.RFC3339),
 		"user": gin.H{
 			"user_id":  user.UserID,
-			"nickname": nickname,
-			"avatar":   avatarURL,
+			"nickname": user.Nickname,
+			"avatar":   user.AvatarURL,
 		},
-		"vipType": vipType,
 	})
 }
 
