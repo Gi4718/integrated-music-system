@@ -549,7 +549,8 @@ func secondVerify(c *gin.Context) {
       Cookie:        cleanCookie,
       CookieExpires: time.Now().Add(30 * 24 * time.Hour),
     }
-    if err := db.SaveUser(user); err != nil {
+    systemUserID := getSystemUserID(c)
+    if err := db.SaveUserForSystem(systemUserID, user); err != nil {
       c.JSON(http.StatusInternalServerError, gin.H{"error": "保存用户信息失败"})
       return
     }
