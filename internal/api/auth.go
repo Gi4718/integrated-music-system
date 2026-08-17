@@ -15,13 +15,20 @@ import (
 )
 
 // getSystemUserID 从 gin context 获取当前系统用户 ID
+// 如果无法从 JWT 获取，则使用第一个系统用户作为 fallback
 func getSystemUserID(c *gin.Context) int {
 	if id, exists := c.Get("system_user_id"); exists {
-		if userID, ok := id.(int); ok {
+		if userID, ok := id.(int); ok && userID > 0 {
 			return userID
 		}
 	}
-	return 0
+	// Fallback: 查询第一个系统用户
+	var firstUserID int
+	err := db.QueryRow("SELECT id FROM system_users ORDER BY id LIMIT 1").Scan(&firstUserID)
+	if err == nil && firstUserID > 0 {
+		return firstUserID
+	}
+	return 1 // 最终 fallback
 }
 
 func getQRKey(c *gin.Context) {
