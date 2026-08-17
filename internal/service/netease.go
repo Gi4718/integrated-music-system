@@ -633,7 +633,7 @@ func (s *NeteaseService) GetRecommendPlaylists(cookie string) ([]byte, error) {
 	return body, nil
 }
 
-// CleanCookie 从 Set-Cookie 格式中提取纯 cookie 值
+// CleanCookie 从 Set-Cookie 格式中提取纯 cookie 值并去重
 // 输入: "MUSIC_U=xxx; Max-Age=15552000; Expires=...; Path=/;;__csrf=yyy; ..."
 // 输出: "MUSIC_U=xxx; __csrf=yyy"
 func CleanCookie(rawCookie string) string {
@@ -643,7 +643,7 @@ func CleanCookie(rawCookie string) string {
 
 	// 按分号分割所有 cookie 片段
 	parts := strings.Split(rawCookie, ";")
-	var cookiePairs []string
+	cookieMap := make(map[string]string) // 用于去重，保留最后一个值
 
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
@@ -665,8 +665,18 @@ func CleanCookie(rawCookie string) string {
 
 		// 保留 name=value 格式的 cookie
 		if strings.Contains(part, "=") {
-			cookiePairs = append(cookiePairs, part)
+			eqIdx := strings.Index(part, "=")
+			name := strings.TrimSpace(part[:eqIdx])
+			value := strings.TrimSpace(part[eqIdx+1:])
+			// 使用 map 去重，后面的值会覆盖前面的
+			cookieMap[name] = value
 		}
+	}
+
+	// 转换回字符串
+	var cookiePairs []string
+	for name, value := range cookieMap {
+		cookiePairs = append(cookiePairs, name+"="+value)
 	}
 
 	return strings.Join(cookiePairs, "; ")
