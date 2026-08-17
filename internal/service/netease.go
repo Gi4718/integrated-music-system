@@ -12,8 +12,11 @@ import (
 
 // 固定的设备标识，让网易云API认为是同一个设备
 const (
-	fixedRealIP = "192.168.1.100"
-	fixedUA     = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+	fixedDeviceID = "a1b2c3d4e5f6g7h8i9j0"
+	fixedOS       = "windows"
+	fixedOSVer    = "10.0.19045"
+	fixedAppVer   = "3.0.18.203732"
+	fixedUA       = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
 
 type NeteaseService struct {
@@ -37,8 +40,18 @@ func addDeviceParams(rawURL string) string {
 		return rawURL
 	}
 	q := u.Query()
-	if q.Get("realIP") == "" {
-		q.Set("realIP", fixedRealIP)
+	// 固定设备ID，让网易云认为是同一设备
+	if q.Get("deviceId") == "" {
+		q.Set("deviceId", fixedDeviceID)
+	}
+	if q.Get("os") == "" {
+		q.Set("os", fixedOS)
+	}
+	if q.Get("osver") == "" {
+		q.Set("osver", fixedOSVer)
+	}
+	if q.Get("appver") == "" {
+		q.Set("appver", fixedAppVer)
 	}
 	u.RawQuery = q.Encode()
 	return u.String()
@@ -47,7 +60,6 @@ func addDeviceParams(rawURL string) string {
 // setDeviceHeaders 给请求添加固定设备标识头
 func setDeviceHeaders(req *http.Request) {
 	req.Header.Set("User-Agent", fixedUA)
-	req.Header.Set("X-Real-IP", fixedRealIP)
 }
 
 // QRKey 获取二维码登录 key
