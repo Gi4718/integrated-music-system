@@ -2,11 +2,16 @@
   <div class="message-panel" v-if="visible">
     <div class="panel-header">
       <h3>任务日志</h3>
-      <button class="close-btn" @click="$emit('close')">
-        <svg viewBox="0 0 24 24" width="20" height="20">
-          <path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
-        </svg>
-      </button>
+      <div class="header-actions">
+        <button class="clear-btn" @click="clearCompleted" :disabled="completedCount === 0" title="清空已完成任务">
+          清空已完成({{ completedCount }})
+        </button>
+        <button class="close-btn" @click="$emit('close')">
+          <svg viewBox="0 0 24 24" width="20" height="20">
+            <path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+          </svg>
+        </button>
+      </div>
     </div>
     <div class="panel-content" ref="panelContent">
       <div v-if="tasks.length === 0" class="empty-state">
@@ -53,7 +58,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { taskAPI } from '../api'
 
 defineProps<{
@@ -82,6 +87,19 @@ interface Task {
 
 const tasks = ref<Task[]>([])
 let pollTimer: number | null = null
+
+const completedCount = computed(() => {
+  return tasks.value.filter(t => t.status === 'completed' || t.status === 'failed' || t.status === 'cancelled').length
+})
+
+const clearCompleted = async () => {
+  try {
+    await taskAPI.clearCompleted()
+    await loadTasks()
+  } catch (e) {
+    console.error('清空已完成任务失败', e)
+  }
+}
 
 const getTypeLabel = (type: string) => {
   const labels: Record<string, string> = {
@@ -188,6 +206,33 @@ onUnmounted(() => {
   font-size: 16px;
   font-weight: 600;
   color: var(--text-primary);
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.clear-btn {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.clear-btn:hover:not(:disabled) {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.clear-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .close-btn {
