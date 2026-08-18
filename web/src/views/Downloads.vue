@@ -90,10 +90,6 @@ const downloads = ref<any[]>([])
 const tasks = ref<any[]>([])
 let pollTimer: number | null = null
 
-const activeTasks = computed(() => {
-  return tasks.value.filter(t => t.status === 'running' || t.status === 'pending')
-})
-
 const completedTasks = computed(() => {
   return tasks.value.filter(t => t.status === 'completed' || t.status === 'failed')
 })
