@@ -228,23 +228,21 @@ onUnmounted(() => {
 
 .clear-btn {
   padding: 6px 16px;
-  background: transparent;
-  color: var(--text-secondary);
-  border: 1px solid var(--border-color);
+  background: #FFFA00;
+  color: #000;
+  border: none;
   border-radius: 4px;
   font-size: 13px;
   cursor: pointer;
-  transition: all 0.2s;
+  margin-left: 12px;
 }
 
 .clear-btn:hover:not(:disabled) {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  border-color: var(--text-secondary);
+  opacity: 0.85;
 }
 
 .clear-btn:disabled {
-  opacity: 0.4;
+  opacity: 0.3;
   cursor: not-allowed;
 }
 
