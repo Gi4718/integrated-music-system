@@ -1858,6 +1858,9 @@ func (e *Engine) RunAutoSync(ctx context.Context) {
 	syncedPlaylists := 0
 	var triggeredPlaylistIDs []int
 
+	// 先设置初始进度，避免前端显示 0/0
+	e.taskService.UpdateTaskProgress(syncTask.ID, 0, 0)
+
 	for _, p := range playlistData {
 		playlist := p.(map[string]interface{})
 		playlistID := int(playlist["id"].(float64))
@@ -1903,11 +1906,14 @@ func (e *Engine) RunAutoSync(ctx context.Context) {
 	}
 
 	// 等待所有触发的歌单任务完成（扫描→下载→补全）
-	if len(triggeredPlaylistIDs) > 0 {
-		fmt.Printf("[autoSync] waiting for %d playlist tasks to complete...\n", len(triggeredPlaylistIDs))
-		e.waitPlaylistTasksComplete(ctx, triggeredPlaylistIDs, syncTask.ID, totalPlaylists)
+	triggeredCount := len(triggeredPlaylistIDs)
+	if triggeredCount > 0 {
+		fmt.Printf("[autoSync] waiting for %d playlist tasks to complete...\n", triggeredCount)
+		// 先设置初始进度
+		e.taskService.UpdateTaskProgress(syncTask.ID, 0, triggeredCount)
+		e.waitPlaylistTasksComplete(ctx, triggeredPlaylistIDs, syncTask.ID, triggeredCount)
 	} else {
-		e.taskService.UpdateTaskProgress(syncTask.ID, syncedPlaylists, totalPlaylists)
+		e.taskService.UpdateTaskProgress(syncTask.ID, 0, 0)
 		e.taskService.CompleteTask(syncTask.ID)
 	}
 
@@ -1926,26 +1932,28 @@ func (e *Engine) waitPlaylistTasksComplete(ctx context.Context, playlistIDs []in
 			e.taskService.CompleteTask(syncTaskID)
 			return
 		case <-ticker.C:
-			allDone := true
+			completed := 0
 			for _, pid := range playlistIDs {
 				e.mu.RLock()
 				phase, exists := e.playlistPhases[pid]
 				e.mu.RUnlock()
 				if !exists {
+					// phase 已被清理，说明任务已完成
+					completed++
 					continue
 				}
 				phase.mu.Lock()
 				isActive := phase.Phase == "scanning" || phase.Phase == "downloading" || phase.Phase == "metadata"
 				phase.mu.Unlock()
-				if isActive {
-					allDone = false
-					break
+				if !isActive {
+					completed++
 				}
 			}
-			if allDone {
-				e.taskService.UpdateTaskProgress(syncTaskID, totalPlaylists, totalPlaylists)
+			// 实时更新进度
+			e.taskService.UpdateTaskProgress(syncTaskID, completed, totalPlaylists)
+			if completed >= len(playlistIDs) {
 				e.taskService.CompleteTask(syncTaskID)
-				fmt.Printf("[autoSync] all playlist tasks completed\n")
+				fmt.Printf("[autoSync] all playlist tasks completed (%d/%d)\n", completed, totalPlaylists)
 				return
 			}
 		}
