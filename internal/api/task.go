@@ -34,3 +34,8 @@ func (h *TaskHandler) CancelTask(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "任务无法终止或不存在"})
 	}
 }
+
+func (h *TaskHandler) ClearCompletedTasks(c *gin.Context) {
+	count := h.taskService.ClearCompletedTasks()
+	c.JSON(http.StatusOK, gin.H{"message": "已清除已完成任务", "count": count})
+}

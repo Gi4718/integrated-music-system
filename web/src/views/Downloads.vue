@@ -5,10 +5,15 @@
       <span class="subtitle">DOWNLOAD HISTORY</span>
     </div>
 
-    <!-- 实时任务进度 -->
-    <div v-if="activeTasks.length" class="active-tasks-section">
-      <h3 class="section-title">正在进行的任务</h3>
-      <div v-for="task in activeTasks" :key="task.id" class="task-card">
+    <!-- 任务日志 -->
+    <div class="tasks-section">
+      <div class="section-header">
+        <h3 class="section-title">任务日志</h3>
+        <button class="clear-btn" @click="clearCompleted" :disabled="completedTasks.length === 0">
+          清空已完成 ({{ completedTasks.length }})
+        </button>
+      </div>
+      <div v-for="task in tasks" :key="task.id" class="task-card">
         <div class="task-header">
           <span class="task-title">{{ task.title }}</span>
           <span class="task-status" :class="task.status">{{ getStatusText(task.status) }}</span>
@@ -31,6 +36,7 @@
           </div>
         </div>
       </div>
+      <div v-if="tasks.length === 0" class="empty-tasks">暂无任务记录</div>
     </div>
 
     <!-- 下载历史 -->
@@ -88,6 +94,10 @@ const activeTasks = computed(() => {
   return tasks.value.filter(t => t.status === 'running' || t.status === 'pending')
 })
 
+const completedTasks = computed(() => {
+  return tasks.value.filter(t => t.status === 'completed' || t.status === 'failed')
+})
+
 const loadHistory = async () => {
   try {
     const res = await downloadAPI.getHistory()
@@ -136,6 +146,16 @@ const retryDownload = async (item: any) => {
     await loadHistory()
   } catch {
     ElMessage.error('重试失败')
+  }
+}
+
+const clearCompleted = async () => {
+  try {
+    const res = await taskAPI.clearCompleted()
+    ElMessage.success(res.data.message || '已清空已完成任务')
+    await loadTasks()
+  } catch {
+    ElMessage.error('清空失败')
   }
 }
 

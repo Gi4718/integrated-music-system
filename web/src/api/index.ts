@@ -184,6 +184,9 @@ export const taskAPI = {
   },
   cancelTask(taskId: string) {
     return api.post(`/tasks/${taskId}/cancel`)
+  },
+  clearCompleted() {
+    return api.delete('/tasks/completed')
   }
 }
 

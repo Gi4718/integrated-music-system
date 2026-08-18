@@ -225,6 +225,7 @@ func SetupRouter(cfg *config.Config) *gin.Engine {
 				tasks.GET("", taskHandler.GetTasks)
 				tasks.GET("/:id/progress", taskHandler.GetTaskProgress)
 				tasks.POST("/:id/cancel", taskHandler.CancelTask)
+				tasks.DELETE("/completed", taskHandler.ClearCompletedTasks)
 			}
 		}
 	}

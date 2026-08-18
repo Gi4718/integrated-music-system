@@ -180,6 +180,20 @@ func (s *TaskService) CancelTask(id string) bool {
 	return false
 }
 
+func (s *TaskService) ClearCompletedTasks() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	count := 0
+	for id, task := range s.tasks {
+		if task.Status == TaskStatusCompleted || task.Status == TaskStatusCancelled {
+			delete(s.tasks, id)
+			count++
+		}
+	}
+	return count
+}
+
 func generateTaskID() string {
 	return time.Now().Format("20060102150405") + "-" + randomString(6)
 }
