@@ -1856,6 +1856,7 @@ func (e *Engine) RunAutoSync(ctx context.Context) {
 
 	totalPlaylists := 0
 	syncedPlaylists := 0
+	var triggeredPlaylistIDs []int
 
 	for _, p := range playlistData {
 		playlist := p.(map[string]interface{})
@@ -1884,6 +1885,7 @@ func (e *Engine) RunAutoSync(ctx context.Context) {
 			if isActive {
 				fmt.Printf("[autoSync] skipping playlist %s (active task)\n", playlistName)
 				totalPlaylists++
+				triggeredPlaylistIDs = append(triggeredPlaylistIDs, playlistID)
 				continue
 			}
 		}
@@ -1897,12 +1899,57 @@ func (e *Engine) RunAutoSync(ctx context.Context) {
 			continue
 		}
 		syncedPlaylists++
+		triggeredPlaylistIDs = append(triggeredPlaylistIDs, playlistID)
 	}
 
-	e.taskService.UpdateTaskProgress(syncTask.ID, syncedPlaylists, totalPlaylists)
-	e.taskService.CompleteTask(syncTask.ID)
+	// 等待所有触发的歌单任务完成（扫描→下载→补全）
+	if len(triggeredPlaylistIDs) > 0 {
+		fmt.Printf("[autoSync] waiting for %d playlist tasks to complete...\n", len(triggeredPlaylistIDs))
+		e.waitPlaylistTasksComplete(ctx, triggeredPlaylistIDs, syncTask.ID, totalPlaylists)
+	} else {
+		e.taskService.UpdateTaskProgress(syncTask.ID, syncedPlaylists, totalPlaylists)
+		e.taskService.CompleteTask(syncTask.ID)
+	}
 
 	fmt.Printf("[autoSync] completed: %d/%d playlists synced\n", syncedPlaylists, totalPlaylists)
+}
+
+// waitPlaylistTasksComplete 等待所有歌单任务完成（扫描→下载→补全）
+func (e *Engine) waitPlaylistTasksComplete(ctx context.Context, playlistIDs []int, syncTaskID string, totalPlaylists int) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			e.taskService.UpdateTaskProgress(syncTaskID, 0, totalPlaylists)
+			e.taskService.CompleteTask(syncTaskID)
+			return
+		case <-ticker.C:
+			allDone := true
+			for _, pid := range playlistIDs {
+				e.mu.RLock()
+				phase, exists := e.playlistPhases[pid]
+				e.mu.RUnlock()
+				if !exists {
+					continue
+				}
+				phase.mu.Lock()
+				isActive := phase.Phase == "scanning" || phase.Phase == "downloading" || phase.Phase == "metadata"
+				phase.mu.Unlock()
+				if isActive {
+					allDone = false
+					break
+				}
+			}
+			if allDone {
+				e.taskService.UpdateTaskProgress(syncTaskID, totalPlaylists, totalPlaylists)
+				e.taskService.CompleteTask(syncTaskID)
+				fmt.Printf("[autoSync] all playlist tasks completed\n")
+				return
+			}
+		}
+	}
 }
 
 // autoCompleteMetadata 自动补全未完成元数据的歌曲
