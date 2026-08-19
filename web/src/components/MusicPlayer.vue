@@ -148,7 +148,7 @@ const showPlaylistDialog = () => {
 const showAddToPlaylistDialog = async () => {
   try {
     const res = await playlistAPI.getUserPlaylists()
-    userPlaylists.value = res.data.playlists || []
+    userPlaylists.value = res.data.data || []
     showAddToPlaylist.value = true
   } catch {
     ElMessage.error('获取歌单失败')

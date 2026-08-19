@@ -142,8 +142,10 @@ func getPlaylistDetail(c *gin.Context) {
 				artists = strings.Join(names, "/")
 			}
 			album := ""
+			picURL := ""
 			if al, ok := track["al"].(map[string]interface{}); ok {
 				album, _ = al["name"].(string)
+				picURL, _ = al["picUrl"].(string)
 			}
 			duration := 0
 			if dt, ok := track["dt"].(float64); ok {
@@ -195,6 +197,9 @@ func getPlaylistDetail(c *gin.Context) {
 							if album == "" {
 								if al, ok := song["al"].(map[string]interface{}); ok {
 									album, _ = al["name"].(string)
+									if picURL == "" {
+										picURL, _ = al["picUrl"].(string)
+									}
 								}
 							}
 							if duration == 0 {
@@ -228,6 +233,7 @@ func getPlaylistDetail(c *gin.Context) {
 				"artist":   artists,
 				"album":    album,
 				"duration": duration,
+				"pic_url":  picURL,
 			})
 		}
 
@@ -298,8 +304,10 @@ func getPlaylistDetail(c *gin.Context) {
 							}
 
 							album := ""
+							picURL := ""
 							if al, ok := song["al"].(map[string]interface{}); ok {
 								album, _ = al["name"].(string)
+								picURL, _ = al["picUrl"].(string)
 							}
 							if album == "" {
 								album = "未知专辑"
@@ -320,6 +328,7 @@ func getPlaylistDetail(c *gin.Context) {
 								"artist":   artists,
 								"album":    album,
 								"duration": duration,
+								"pic_url":  picURL,
 							})
 						}
 					}

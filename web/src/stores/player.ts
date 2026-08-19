@@ -42,6 +42,10 @@ export const usePlayerStore = defineStore('player', () => {
 
       audio.value.addEventListener('ended', () => {
         isPlaying.value = false
+        // 自动播放下一首
+        if (playlist.value.length > 0) {
+          playNext()
+        }
       })
 
       audio.value.addEventListener('error', () => {
