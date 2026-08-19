@@ -162,16 +162,20 @@ const playFromPlaylist = (index: number) => {
   }
 }
 
-const addToPlaylist = async (_playlistId: number) => {
+const addToPlaylist = async (playlistId: number) => {
   if (!player.currentSong) return
   
   try {
-    // 这里需要调用后端 API 将歌曲添加到歌单
-    // 暂时显示成功消息
-    ElMessage.success(`已添加到歌单`)
-    showAddToPlaylist.value = false
-  } catch {
-    ElMessage.error('添加失败')
+    const res = await playlistAPI.addSongToPlaylist(playlistId, player.currentSong.id)
+    if (res.data.success) {
+      ElMessage.success('已添加到歌单')
+      showAddToPlaylist.value = false
+    } else {
+      ElMessage.error(res.data.error || '添加失败')
+    }
+  } catch (err: any) {
+    const errorMsg = err.response?.data?.error || '添加失败，请重试'
+    ElMessage.error(errorMsg)
   }
 }
 

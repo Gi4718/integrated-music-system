@@ -54,6 +54,17 @@ func getUserPlaylists(c *gin.Context) {
 				continue
 			}
 			
+			// 只返回用户自己创建的歌单（有写入权限）
+			creatorID := float64(0)
+			if creator, ok := playlist["creator"].(map[string]interface{}); ok {
+				if uid, ok := creator["userId"].(float64); ok {
+					creatorID = uid
+				}
+			}
+			if creatorID != float64(user.UserID) {
+				continue
+			}
+			
 			pl := map[string]interface{}{
 				"id":          id,
 				"name":        name,
@@ -73,6 +84,53 @@ func getUserPlaylists(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": playlists})
+}
+
+// addSongToPlaylist 添加歌曲到歌单
+func addSongToPlaylist(c *gin.Context) {
+	systemUserID := getSystemUserID(c)
+	user, err := db.GetCurrentUserForSystem(systemUserID)
+	if err != nil || user == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未登录"})
+		return
+	}
+
+	var req struct {
+		PlaylistID int `json:"playlist_id" binding:"required"`
+		SongID     int `json:"song_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
+		return
+	}
+
+	cookie, _ := db.GetCookie()
+	netease := service.NewNeteaseService("http://127.0.0.1:3000")
+	body, err := netease.AddSongToPlaylist(req.PlaylistID, req.SongID, cookie)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	var result map[string]interface{}
+	json.Unmarshal(body, &result)
+
+	// 检查网易云 API 返回
+	if code, ok := result["code"].(float64); ok {
+		if code == 200 {
+			c.JSON(http.StatusOK, gin.H{"success": true, "message": "添加成功"})
+			return
+		}
+		// 解析错误信息
+		message, _ := result["message"].(string)
+		if message == "" {
+			message = "未知错误"
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": message})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "添加成功"})
 }
 
 func getPlaylistDetail(c *gin.Context) {

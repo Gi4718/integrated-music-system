@@ -109,6 +109,9 @@ export const playlistAPI = {
   getUserPlaylists() {
     return api.get('/playlist/user')
   },
+  addSongToPlaylist(playlistId: number, songId: number) {
+    return api.post('/playlist/add-song', { playlist_id: playlistId, song_id: songId })
+  },
   getPlaylistDetail(playlistId: number) {
     return api.get(`/playlist/detail?id=${playlistId}`)
   },
