@@ -1830,7 +1830,7 @@ func (e *Engine) RunAutoSync(ctx context.Context) {
 	}
 
 	// 获取用户歌单列表
-	body, err := e.netease.GetUserPlaylists(user.UserID)
+	body, err := e.netease.GetUserPlaylists(user.UserID, user.Cookie)
 	if err != nil {
 		fmt.Printf("[autoSync] failed to get playlists: %v\n", err)
 		return

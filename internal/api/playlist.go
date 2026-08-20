@@ -23,7 +23,7 @@ func getUserPlaylists(c *gin.Context) {
 	}
 
 	netease := service.NewNeteaseService("http://127.0.0.1:3000")
-	body, err := netease.GetUserPlaylists(user.UserID)
+	body, err := netease.GetUserPlaylists(user.UserID, user.Cookie)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

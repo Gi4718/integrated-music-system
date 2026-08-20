@@ -326,13 +326,17 @@ func (s *NeteaseService) GetLyric(songID int) ([]byte, error) {
 }
 
 // GetUserPlaylists 获取用户歌单
-func (s *NeteaseService) GetUserPlaylists(uid int) ([]byte, error) {
+func (s *NeteaseService) GetUserPlaylists(uid int, cookie string) ([]byte, error) {
 	reqURL := addDeviceParams(fmt.Sprintf("%s/user/playlist?uid=%d", s.baseURL, uid))
 	req, err := http.NewRequest("GET", reqURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("创建请求失败: %w", err)
 	}
 	setDeviceHeaders(req)
+
+	if cookie != "" {
+		req.Header.Set("Cookie", cookie)
+	}
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {

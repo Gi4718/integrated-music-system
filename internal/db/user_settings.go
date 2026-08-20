@@ -196,9 +196,30 @@ func GetCurrentUserForSystem(systemUserID int) (*model.User, error) {
 	)
 
 	if err == sql.ErrNoRows {
-		return nil, nil
+		// Fallback: 获取最近更新的用户（兼容旧数据 system_user_id=0）
+		fallbackQuery := `SELECT id, user_id, nickname, avatar_url, cookie, cookie_expires, created_at, updated_at
+			  FROM users ORDER BY updated_at DESC LIMIT 1`
+		row = dbConn.QueryRow(fallbackQuery)
+		err = row.Scan(
+			&user.ID,
+			&user.UserID,
+			&user.Nickname,
+			&user.AvatarURL,
+			&user.Cookie,
+			&cookieExpires,
+			&user.CreatedAt,
+			&user.UpdatedAt,
+		)
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		// 将旧用户的 system_user_id 更新为当前系统用户
+		dbConn.Exec(`UPDATE users SET system_user_id = ? WHERE id = ?`, systemUserID, user.ID)
 	}
-	if err != nil {
+	if err != nil && err != sql.ErrNoRows {
 		return nil, err
 	}
 
