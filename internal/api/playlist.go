@@ -54,22 +54,21 @@ func getUserPlaylists(c *gin.Context) {
 				continue
 			}
 			
-			// 只返回用户自己创建的歌单（有写入权限）
+			// 标记是否可写（用户自己创建的歌单）
 			creatorID := float64(0)
 			if creator, ok := playlist["creator"].(map[string]interface{}); ok {
 				if uid, ok := creator["userId"].(float64); ok {
 					creatorID = uid
 				}
 			}
-			if creatorID != float64(user.UserID) {
-				continue
-			}
-			
+			isWritable := creatorID == float64(user.UserID)
+
 			pl := map[string]interface{}{
 				"id":          id,
 				"name":        name,
 				"track_count": trackCount,
 				"cover":       cover,
+				"writable":    isWritable,
 			}
 			playlists = append(playlists, pl)
 
@@ -141,9 +140,24 @@ func getPlaylistDetail(c *gin.Context) {
 		return
 	}
 
+	// 分页参数
+	offset := 0
+	limit := 100
+	if v := c.Query("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+	if v := c.Query("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 1000 {
+			limit = n
+		}
+	}
+
 	cookie, _ := db.GetCookie()
-	fmt.Printf("[playlist] cookie length: %d, playlistID: %d\n", len(cookie), playlistID)
 	netease := service.NewNeteaseService("http://127.0.0.1:3000")
+
+	// 获取歌单详情（含 trackIds）
 	body, err := netease.GetPlaylistDetail(playlistID, cookie)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -156,249 +170,134 @@ func getPlaylistDetail(c *gin.Context) {
 		return
 	}
 
-	fmt.Printf("[playlist] API response code: %v\n", result["code"])
+	// 提取 trackIds
+	var allTrackIDs []int
+	total := 0
+	if playlist, ok := result["playlist"].(map[string]interface{}); ok {
+		if tc, ok := playlist["trackCount"].(float64); ok {
+			total = int(tc)
+		}
+		if trackIDs, ok := playlist["trackIds"].([]interface{}); ok {
+			for _, id := range trackIDs {
+				if songID, ok := id.(float64); ok {
+					allTrackIDs = append(allTrackIDs, int(songID))
+				}
+			}
+		}
+	}
+
+	// 用 trackIds 的实际数量作为 total（比 trackCount 更准确）
+	if len(allTrackIDs) > 0 {
+		total = len(allTrackIDs)
+	}
+
+	// 分页截取 trackIds
+	start := offset
+	if start > total {
+		start = total
+	}
+	end := start + limit
+	if end > total {
+		end = total
+	}
 
 	var tracks []map[string]interface{}
-	if playlist, ok := result["playlist"].(map[string]interface{}); ok {
-		// 检查 tracks 数组
-		var trackList []interface{}
-		if tl, ok := playlist["tracks"].([]interface{}); ok {
-			trackList = tl
-			fmt.Printf("[playlist] tracks array length: %d\n", len(trackList))
-		} else {
-			fmt.Printf("[playlist] tracks field type: %T, value: %v\n", playlist["tracks"], playlist["tracks"])
-		}
+	if len(allTrackIDs) > 0 && start < end {
+		pageIDs := allTrackIDs[start:end]
+		// 分批获取歌曲详情（每批最多100首）
+		for i := 0; i < len(pageIDs); i += 100 {
+			batchEnd := i + 100
+			if batchEnd > len(pageIDs) {
+				batchEnd = len(pageIDs)
+			}
+			batchIDs := pageIDs[i:batchEnd]
+			idStrs := make([]string, len(batchIDs))
+			for j, id := range batchIDs {
+				idStrs[j] = strconv.Itoa(id)
+			}
+			idsParam := strings.Join(idStrs, ",")
 
-		// 检查 trackIds
-		if tids, ok := playlist["trackIds"].([]interface{}); ok {
-			fmt.Printf("[playlist] trackIds array length: %d\n", len(tids))
-		} else {
-			fmt.Printf("[playlist] trackIds field type: %T, value: %v\n", playlist["trackIds"], playlist["trackIds"])
-		}
-
-		for _, t := range trackList {
-			track, ok := t.(map[string]interface{})
-			if !ok {
+			songBody, err := netease.GetSongDetailBatch(idsParam)
+			if err != nil {
 				continue
 			}
-
-			// 从 tracks 提取基础信息
-			var name string
-			if v, exists := track["name"]; exists && v != nil {
-				name, _ = v.(string)
-			}
-			artists := ""
-			if ar, ok := track["ar"].([]interface{}); ok {
-				names := make([]string, 0)
-				for _, a := range ar {
-					if artist, ok := a.(map[string]interface{}); ok {
-						if n, ok := artist["name"].(string); ok && n != "" {
-							names = append(names, n)
-						}
-					}
-				}
-				artists = strings.Join(names, "/")
-			}
-			album := ""
-			picURL := ""
-			if al, ok := track["al"].(map[string]interface{}); ok {
-				album, _ = al["name"].(string)
-				picURL, _ = al["picUrl"].(string)
-			}
-			duration := 0
-			if dt, ok := track["dt"].(float64); ok {
-				duration = int(dt / 1000)
-			}
-
-			// 对 null 字段，回退到批量 API 补充
-			needDetail := name == "" || artists == "" || album == ""
-			if needDetail {
-				if id, ok := track["id"]; ok {
-					detailBody, err := netease.GetSongDetailBatch(fmt.Sprintf("%v", id))
-					if err == nil {
-						var detailResult map[string]interface{}
-						json.Unmarshal(detailBody, &detailResult)
-						if songs, ok := detailResult["songs"].([]interface{}); ok && len(songs) > 0 {
-							song := songs[0].(map[string]interface{})
-							if name == "" {
-								if v, exists := song["name"]; exists && v != nil {
-									name, _ = v.(string)
-								}
-								if name == "" {
-									if tn, ok := song["tns"].([]interface{}); ok && len(tn) > 0 {
-										if str, ok := tn[0].(string); ok {
-											name = str
-										}
-									}
-								}
-								if name == "" {
-									if alia, ok := song["alia"].([]interface{}); ok && len(alia) > 0 {
-										if str, ok := alia[0].(string); ok {
-											name = str
-										}
-									}
-								}
-							}
-							if artists == "" {
-								if ar, ok := song["ar"].([]interface{}); ok {
-									names := make([]string, 0)
-									for _, a := range ar {
-										if artist, ok := a.(map[string]interface{}); ok {
-											if n, ok := artist["name"].(string); ok && n != "" {
-												names = append(names, n)
-											}
-										}
-									}
-									artists = strings.Join(names, "/")
-								}
-							}
-							if album == "" {
-								if al, ok := song["al"].(map[string]interface{}); ok {
-									album, _ = al["name"].(string)
-									if picURL == "" {
-										picURL, _ = al["picUrl"].(string)
-									}
-								}
-							}
-							if duration == 0 {
-								if dt, ok := song["dt"].(float64); ok {
-									duration = int(dt / 1000)
-								}
-							}
-						}
-					}
-				}
-			}
-
-			if name == "" {
-				name = "未知歌曲"
-			}
-			if artists == "" {
-				artists = "未知歌手"
-			}
-			if album == "" {
-				album = "未知专辑"
-			}
-
-			if name == "" || strings.TrimSpace(name) == "" || name == "未知歌曲" {
-				fmt.Printf("[playlist] skipping empty track id=%v, name='%s'\n", track["id"], name)
+			var songResult map[string]interface{}
+			if err := json.Unmarshal(songBody, &songResult); err != nil {
 				continue
 			}
-
-			tracks = append(tracks, map[string]interface{}{
-				"id":       track["id"],
-				"name":     name,
-				"artist":   artists,
-				"album":    album,
-				"duration": duration,
-				"pic_url":  picURL,
-			})
-		}
-
-		// 如果 tracks 为空，回退到 trackIds 批量获取
-		if len(tracks) == 0 {
-			var ids []string
-			if trackIds, ok := playlist["trackIds"].([]interface{}); ok {
-				for _, tid := range trackIds {
-					switch v := tid.(type) {
-					case float64:
-						ids = append(ids, fmt.Sprintf("%.0f", v))
-					case map[string]interface{}:
-						if id, ok := v["id"]; ok {
-							ids = append(ids, fmt.Sprintf("%v", id))
-						}
-					}
-				}
-			}
-			if len(ids) > 0 {
-				for start := 0; start < len(ids); start += 1000 {
-					end := start + 1000
-					if end > len(ids) {
-						end = len(ids)
-					}
-					batchIds := strings.Join(ids[start:end], ",")
-					detailBody, err := netease.GetSongDetailBatch(batchIds)
-					if err != nil {
-						continue
-					}
-					var detailResult map[string]interface{}
-					json.Unmarshal(detailBody, &detailResult)
-					if songs, ok := detailResult["songs"].([]interface{}); ok {
-						for _, s := range songs {
-							song := s.(map[string]interface{})
-							name, _ := song["name"].(string)
-							if name == "" {
-								if tn, ok := song["tns"].([]interface{}); ok && len(tn) > 0 {
-									if str, ok := tn[0].(string); ok {
-										name = str
-									}
-								}
-							}
-							if name == "" {
-								if alia, ok := song["alia"].([]interface{}); ok && len(alia) > 0 {
-									if str, ok := alia[0].(string); ok {
-										name = str
-									}
-								}
-							}
-							if name == "" {
-								name = "未知歌曲"
-							}
-
-							artists := ""
-							if ar, ok := song["ar"].([]interface{}); ok {
-								names := make([]string, 0)
-								for _, a := range ar {
-									if artist, ok := a.(map[string]interface{}); ok {
-										if n, ok := artist["name"].(string); ok && n != "" {
-											names = append(names, n)
-										}
-									}
-								}
-								artists = strings.Join(names, "/")
-							}
-							if artists == "" {
-								artists = "未知歌手"
-							}
-
-							album := ""
-							picURL := ""
-							if al, ok := song["al"].(map[string]interface{}); ok {
-								album, _ = al["name"].(string)
-								picURL, _ = al["picUrl"].(string)
-							}
-							if album == "" {
-								album = "未知专辑"
-							}
-
-							duration := 0
-							if dt, ok := song["dt"].(float64); ok {
-								duration = int(dt / 1000)
-							}
-
-							if name == "" || strings.TrimSpace(name) == "" || name == "未知歌曲" {
-								continue
-							}
-
-							tracks = append(tracks, map[string]interface{}{
-								"id":       song["id"],
-								"name":     name,
-								"artist":   artists,
-								"album":    album,
-								"duration": duration,
-								"pic_url":  picURL,
-							})
-						}
-					}
+			if songs, ok := songResult["songs"].([]interface{}); ok {
+				for _, s := range songs {
+					tracks = append(tracks, parseTrack(s.(map[string]interface{})))
 				}
 			}
 		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
+		"success":  true,
 		"playlist": result["playlist"],
 		"tracks":   tracks,
+		"total":    total,
+		"offset":   offset,
+		"limit":    limit,
 	})
+}
+
+func parseTrack(track map[string]interface{}) map[string]interface{} {
+	name, _ := track["name"].(string)
+	if name == "" {
+		if tn, ok := track["tns"].([]interface{}); ok && len(tn) > 0 {
+			name, _ = tn[0].(string)
+		}
+	}
+	if name == "" {
+		if alia, ok := track["alia"].([]interface{}); ok && len(alia) > 0 {
+			name, _ = alia[0].(string)
+		}
+	}
+	if name == "" {
+		name = "未知歌曲"
+	}
+
+	artists := ""
+	if ar, ok := track["ar"].([]interface{}); ok {
+		names := make([]string, 0)
+		for _, a := range ar {
+			if artist, ok := a.(map[string]interface{}); ok {
+				if n, ok := artist["name"].(string); ok && n != "" {
+					names = append(names, n)
+				}
+			}
+		}
+		artists = strings.Join(names, "/")
+	}
+	if artists == "" {
+		artists = "未知歌手"
+	}
+
+	album := ""
+	picURL := ""
+	if al, ok := track["al"].(map[string]interface{}); ok {
+		album, _ = al["name"].(string)
+		picURL, _ = al["picUrl"].(string)
+	}
+	if album == "" {
+		album = "未知专辑"
+	}
+
+	duration := 0
+	if dt, ok := track["dt"].(float64); ok {
+		duration = int(dt / 1000)
+	}
+
+	return map[string]interface{}{
+		"id":       track["id"],
+		"name":     name,
+		"artist":   artists,
+		"album":    album,
+		"pic_url":  picURL,
+		"duration": duration,
+	}
 }
 
 func subscribePlaylist(c *gin.Context) {

@@ -112,8 +112,8 @@ export const playlistAPI = {
   addSongToPlaylist(playlistId: number, songId: number) {
     return api.post('/playlist/add-song', { playlist_id: playlistId, song_id: songId })
   },
-  getPlaylistDetail(playlistId: number) {
-    return api.get(`/playlist/detail?id=${playlistId}`)
+  getPlaylistDetail(playlistId: number, offset: number = 0, limit: number = 100) {
+    return api.get(`/playlist/detail?id=${playlistId}&offset=${offset}&limit=${limit}`)
   },
   subscribePlaylist(playlistId: number) {
     return api.post('/playlist/subscribe', { playlist_id: playlistId })
