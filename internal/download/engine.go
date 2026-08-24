@@ -847,16 +847,16 @@ func (e *Engine) asyncScanAndDownload(playlistID int, playlistName string, track
 			}
 		}
 		
-		// 更新补全任务进度（已完成的直接计入）
+		// 更新补全任务进度（已完成的直接计入，但只设置初始值，后续由 completeMetadataTask 递增）
 		if metadataDone > 0 {
 			phase.MetadataDone = metadataDone
-			e.taskService.UpdateTaskProgress(metadataTask.ID, metadataDone, len(trackIDs))
+			e.taskService.UpdateTaskProgress(metadataTask.ID, metadataDone, metadataNeeded+metadataDone)
 		}
 		
 		// 如果所有歌曲元数据都已完成，直接完成补全任务
 		if metadataNeeded == 0 {
 			fmt.Printf("[asyncScanAndDownload] all metadata already completed\n")
-			e.taskService.UpdateTaskProgress(metadataTask.ID, len(trackIDs), len(trackIDs))
+			e.taskService.UpdateTaskProgress(metadataTask.ID, metadataDone, metadataDone)
 			e.taskService.CompleteTask(metadataTask.ID)
 			phase.Phase = "completed"
 		}
@@ -1599,7 +1599,11 @@ func (e *Engine) completeMetadataTask(task *DownloadTask) {
 		phase.mu.Lock()
 		phase.MetadataDone++
 		current := phase.MetadataDone
-		total := phase.TotalSongs
+		// total 使用 DownloadDone（实际需要处理的歌曲数），而不是 TotalSongs（播放列表总歌曲数）
+		total := phase.DownloadDone
+		if total == 0 {
+			total = phase.TotalSongs
+		}
 		phase.mu.Unlock()
 
 		if e.taskService != nil {
@@ -1677,17 +1681,19 @@ func (e *Engine) checkPlaylistPhaseComplete(playlistID int) {
 		// 检查是否需要数据补全（跟随同步运行，非独立定时）
 		autoComplete := getSettingBool("auto_data_complete", true)
 		if autoComplete && downloadDone > 0 && phase.MetadataTaskID != "" {
-			// 使用预创建的 metadataTask，更新 Total 为实际下载成功数
+			// 使用预创建的 metadataTask，更新 Total 为实际需要补全的歌曲数
 			e.taskService.UpdateTaskProgress(phase.MetadataTaskID, 0, downloadDone)
 			e.taskService.SetTaskStatus(phase.MetadataTaskID, service.TaskStatusRunning)
 			phase.Phase = "metadata"
 
-			// 将所有成功下载的歌曲放入元数据队列
+			// 只将元数据未完成的歌曲放入元数据队列
 			e.mu.RLock()
 			for _, t := range e.tasks {
-				if t.PlaylistID == playlistID && t.Status == "completed" {
-					t.Phase = "metadata"
-					e.metadataQueue <- t
+				if t.PlaylistID == playlistID && t.Status == "completed" && t.FilePath != "" {
+					if !e.isMetadataCompleted(t.SongID) {
+						t.Phase = "metadata"
+						e.metadataQueue <- t
+					}
 				}
 			}
 			e.mu.RUnlock()
@@ -1714,6 +1720,19 @@ func (e *Engine) checkPlaylistPhaseComplete(playlistID int) {
 // VerifyMetadata 验证并补全歌单元数据
 func (e *Engine) VerifyMetadata(playlistID int) (string, error) {
 	fmt.Printf("[VerifyMetadata] starting for playlistID=%d\n", playlistID)
+
+	// 检查是否已有活跃任务
+	e.mu.RLock()
+	if phase, ok := e.playlistPhases[playlistID]; ok {
+		phase.mu.Lock()
+		isActive := phase.Phase == "scanning" || phase.Phase == "downloading" || phase.Phase == "metadata"
+		phase.mu.Unlock()
+		if isActive {
+			e.mu.RUnlock()
+			return "", fmt.Errorf("歌单 %d 已有活跃任务", playlistID)
+		}
+	}
+	e.mu.RUnlock()
 
 	// 获取歌单信息
 	cookie, _ := db.GetCookie()
@@ -1832,12 +1851,35 @@ func (e *Engine) VerifyMetadataAll(systemUserID int) (string, error) {
 	if len(enabledPlaylistIDs) == 0 {
 		return "", fmt.Errorf("没有找到需要补全的歌单")
 	}
+
+	// 过滤掉已有活跃任务的歌单
+	var readyIDs []int
+	for _, pid := range enabledPlaylistIDs {
+		e.mu.RLock()
+		phase, exists := e.playlistPhases[pid]
+		e.mu.RUnlock()
+		if exists {
+			phase.mu.Lock()
+			isActive := phase.Phase == "scanning" || phase.Phase == "downloading" || phase.Phase == "metadata"
+			phase.mu.Unlock()
+			if isActive {
+				fmt.Printf("[VerifyMetadataAll] skipping playlist %d (active task)\n", pid)
+				continue
+			}
+		}
+		readyIDs = append(readyIDs, pid)
+	}
+
+	if len(readyIDs) == 0 {
+		return "", fmt.Errorf("所有歌单已有活跃任务或元数据已补全")
+	}
+
 	totalTask := e.taskService.CreateTask(service.TaskTypeDataComplete,
-		fmt.Sprintf("批量验证补全 %d 个歌单元数据", len(enabledPlaylistIDs)), "")
+		fmt.Sprintf("批量验证补全 %d 个歌单元数据", len(readyIDs)), "")
 	e.taskService.SetTaskStatus(totalTask.ID, service.TaskStatusRunning)
-	totalTask.Total = len(enabledPlaylistIDs)
+	totalTask.Total = len(readyIDs)
 	completedCount := 0
-	for _, playlistID := range enabledPlaylistIDs {
+	for _, playlistID := range readyIDs {
 		taskID, err := e.VerifyMetadata(playlistID)
 		if err != nil {
 			fmt.Printf("[VerifyMetadataAll] playlist %d failed: %v\n", playlistID, err)
@@ -1845,12 +1887,14 @@ func (e *Engine) VerifyMetadataAll(systemUserID int) (string, error) {
 		}
 		fmt.Printf("[VerifyMetadataAll] playlist %d -> task %s\n", playlistID, taskID)
 		completedCount++
+		e.taskService.UpdateTaskProgress(totalTask.ID, completedCount, len(readyIDs))
 	}
-	e.taskService.UpdateTaskProgress(totalTask.ID, completedCount, len(enabledPlaylistIDs))
+
 	if completedCount == 0 {
 		e.taskService.SetTaskStatus(totalTask.ID, service.TaskStatusFailed)
 		return "", fmt.Errorf("所有歌单元数据已补全或无可用歌单")
 	}
+
 	return totalTask.ID, nil
 }
 func (e *Engine) failTask(task *DownloadTask, errMsg string) {
@@ -2252,6 +2296,20 @@ func formatSongFilename(songFormat, songName, artist, album string) string {
 	formatted = strings.ReplaceAll(formatted, "{artist}", artist)
 	formatted = strings.ReplaceAll(formatted, "{album}", album)
 	return sanitizeFilename(formatted)
+}
+
+// isMetadataCompleted 检查歌曲元数据是否已完成
+func (e *Engine) isMetadataCompleted(songID int) bool {
+	history, err := db.GetDownloadHistory()
+	if err != nil {
+		return false
+	}
+	for _, h := range history {
+		if h.SongID == songID && h.MetadataCompleted {
+			return true
+		}
+	}
+	return false
 }
 
 // sanitizeFilename 清理文件名中的特殊字符，防止乱码和路径注入
