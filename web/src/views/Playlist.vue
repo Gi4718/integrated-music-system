@@ -38,6 +38,13 @@
             </button>
             <button class="action-btn" @click="verifyMetadata">
               <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+              验证补全本歌单
+            </button>
+            <button class="action-btn" @click="verifyMetadataAll">
+              <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+              批量验证补全
+            </button>
+              <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
               验证补全
             </button>
           </div>
@@ -315,6 +322,16 @@ const formatDuration = (seconds: number) => {
   const m = Math.floor(seconds / 60)
   const s = seconds % 60
   return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
+}
+
+const verifyMetadataAll = async () => {
+  try {
+    await downloadAPI.verifyMetadataAll()
+    ElMessage.success("批量验证补全任务已创建")
+  } catch (e: any) {
+    const errorMsg = e?.response?.data?.error || e?.message || "批量验证补全失败"
+    ElMessage.error(errorMsg)
+  }
 }
 
 const verifyMetadata = async () => {

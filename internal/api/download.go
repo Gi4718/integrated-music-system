@@ -126,3 +126,21 @@ func verifyMetadata(c *gin.Context) {
 		"task_id": taskID,
 	})
 }
+
+func verifyMetadataAll(c *gin.Context) {
+	engine := getDownloadEngine()
+	if engine == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{ error: 下载引擎未初始化})
+		return
+	}
+	systemUserID := getSystemUserID(c)
+	taskID, err := engine.VerifyMetadataAll(systemUserID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{error: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		message: 批量验证补全任务已创建,
+		task_id: taskID,
+	})
+}

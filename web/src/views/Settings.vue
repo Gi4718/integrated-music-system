@@ -29,6 +29,32 @@
         </div>
       </div>
 
+      <div class="setting-row">
+        <label class="setting-label">存储类型</label>
+        <div class="quality-btns">
+          <button :class="{ active: settings.storageType === 'ssd' }" @click="settings.storageType = 'ssd'">SSD</button>
+          <button :class="{ active: settings.storageType === 'hdd' }" @click="settings.storageType = 'hdd'">HDD</button>
+        </div>
+        <button class="help-btn" @mouseenter="showTip('storageType')" @mouseleave="hideTip()">?</button>
+        <div v-if="activeTip === 'storageType'" class="tip-popup tip-left">
+          SSD：高并发（4线程），小缓冲区，适合固态硬盘<br/>
+          HDD：低并发（2线程），大缓冲区，减少机械硬盘磁头抖动
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-label-col">
+          <span class="setting-name">下载前扫描本地文件</span>
+          <span class="setting-desc">开启后下载前会扫描本地已有文件，跳过已下载的歌曲</span>
+        </div>
+        <div class="setting-control-row">
+          <label class="switch">
+            <input type="checkbox" v-model="settings.scanBeforeDownload" />
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+
       <div class="section-save-bar">
         <button class="save-btn" @click="saveDownloadSettings" :disabled="savingDownload">
           {{ savingDownload ? '保存中...' : '保存' }}
@@ -53,6 +79,35 @@
           <label class="switch">
             <input type="checkbox" v-model="settings.autoSync" />
             <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- 选择同步歌单 -->
+      <div class="setting-row">
+        <div class="setting-label-col">
+          <span class="setting-name">选择同步歌单</span>
+          <span class="setting-desc">选择要自动同步的歌单，不选则同步所有歌单</span>
+        </div>
+        <div class="setting-control-row">
+          <button class="select-playlist-btn" @click="showPlaylistSelector = !showPlaylistSelector">
+            {{ showPlaylistSelector ? '收起' : '选择歌单' }}
+          </button>
+        </div>
+      </div>
+
+      <div v-if="showPlaylistSelector" class="playlist-selector">
+        <div v-if="loadingPlaylists" class="loading-text">加载中...</div>
+        <div v-else-if="userPlaylists.length === 0" class="empty-text">暂无歌单，请先在歌单页登录</div>
+        <div v-else class="playlist-list">
+          <label v-for="playlist in userPlaylists" :key="playlist.id" class="playlist-checkbox">
+            <input 
+              type="checkbox" 
+              :value="playlist.id" 
+              v-model="selectedSyncPlaylists"
+            />
+            <span class="playlist-name">{{ playlist.name }}</span>
+            <span class="playlist-count">({{ playlist.trackCount }}首)</span>
           </label>
         </div>
       </div>
@@ -99,39 +154,6 @@
             </button>
           </div>
           <input type="time" v-model="settings.syncTime" class="time-input" />
-        </div>
-      </div>
-
-      <div v-if="settings.autoSync" class="setting-row">
-        <div class="setting-label-col">
-          <span class="setting-name">同步歌单</span>
-          <span class="setting-desc">选择要同步的歌单（不选择则同步全部）</span>
-        </div>
-        <div class="setting-control-row">
-          <div class="sync-playlists-selector">
-            <div class="playlist-actions">
-              <button class="small-btn" @click="selectAllPlaylists">全选</button>
-              <button class="small-btn" @click="deselectAllPlaylists">全不选</button>
-              <button class="small-btn" @click="loadUserPlaylists" :disabled="loadingPlaylists">
-                {{ loadingPlaylists ? '加载中...' : '刷新列表' }}
-              </button>
-            </div>
-            <div v-if="userPlaylists.length === 0" class="no-playlists">
-              暂无歌单，请先登录网易云账号
-            </div>
-            <div v-else class="playlist-list">
-              <label v-for="playlist in userPlaylists" :key="playlist.id" class="playlist-checkbox-item">
-                <input 
-                  type="checkbox" 
-                  :value="playlist.id" 
-                  v-model="selectedSyncPlaylists"
-                  @change="onPlaylistSelectionChange"
-                />
-                <span class="playlist-name">{{ playlist.name }}</span>
-                <span class="playlist-count">({{ playlist.trackCount }}首)</span>
-              </label>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -477,7 +499,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
-import { settingsAPI, playlistAPI } from '../api'
+import { settingsAPI } from '../api'
 import { ElMessage } from 'element-plus'
 
 const activeTip = ref('')
@@ -497,6 +519,13 @@ const savingPersonal = ref(false)
 const personalSavedTip = ref(false)
 const disablePageAnimation = ref(false)
 
+// 同步歌单选择相关
+const userPlaylists = ref<Array<{ id: number; name: string; trackCount: number }>>([])
+const selectedSyncPlaylists = ref<number[]>([])
+const loadingPlaylists = ref(false)
+const syncing = ref(false)
+const showPlaylistSelector = ref(false)
+
 const settings = ref({
   downloadPath: '',
   songFormat: '{songName} - {artist}',
@@ -506,6 +535,8 @@ const settings = ref({
   deleteRemoved: false,
   playlistFormat: '{playlistName}/{songName} - {artist}',
   quality: 'high' as 'high' | 'lossless',
+  storageType: 'ssd' as 'ssd' | 'hdd',
+  scanBeforeDownload: true,
   resumeDownloads: true,
   autoDataComplete: false,
   dataCompleteInterval: 24,
@@ -531,12 +562,6 @@ const settings = ref({
   syncTime: '08:00'
 })
 
-// 歌单同步选择相关
-const userPlaylists = ref<Array<{ id: number; name: string; trackCount: number }>>([])
-const selectedSyncPlaylists = ref<number[]>([])
-const loadingPlaylists = ref(false)
-const syncing = ref(false)
-
 const weekdays = [
   { value: 1, label: '周一' },
   { value: 2, label: '周二' },
@@ -554,59 +579,6 @@ const toggleWeekday = (day: number) => {
   } else {
     settings.value.syncWeekdays.push(day)
   }
-}
-
-// 加载用户歌单列表
-const loadUserPlaylists = async () => {
-  loadingPlaylists.value = true
-  try {
-    const response = await playlistAPI.getUserPlaylists()
-    if (response.data.success) {
-      userPlaylists.value = response.data.data.map((p: any) => ({
-        id: p.id,
-        name: p.name,
-        trackCount: p.track_count || p.trackCount || 0
-      }))
-    }
-  } catch (error: any) {
-    console.error('加载歌单失败:', error)
-    if (error.response?.status === 401) {
-      ElMessage.error('登录已过期，请重新登录')
-    } else {
-      ElMessage.error('加载歌单失败: ' + (error.response?.data?.error || error.message))
-    }
-  } finally {
-    loadingPlaylists.value = false
-  }
-}
-
-// 加载已保存的同步歌单配置
-const loadSyncPlaylists = async () => {
-  try {
-    const response = await playlistAPI.getSyncPlaylists()
-    if (response.data.success) {
-      selectedSyncPlaylists.value = response.data.data.map((p: any) => p.playlist_id)
-    }
-  } catch (error) {
-    console.error('加载同步歌单配置失败:', error)
-  }
-}
-
-// 全选歌单
-const selectAllPlaylists = () => {
-  selectedSyncPlaylists.value = userPlaylists.value.map(p => p.id)
-  onPlaylistSelectionChange()
-}
-
-// 取消全选
-const deselectAllPlaylists = () => {
-  selectedSyncPlaylists.value = []
-  onPlaylistSelectionChange()
-}
-
-// 歌单选择变化
-const onPlaylistSelectionChange = () => {
-  // 这里可以添加实时保存逻辑，或者在保存设置时一起保存
 }
 
 const acmeApplying = ref(false)
@@ -830,7 +802,7 @@ const loadPlugins = async () => {
 const loadSettings = async () => {
   try {
     const res = await settingsAPI.getSettings()
-    const s = res.data.settings || res.data
+    const s = res.data.settings
     if (s) {
       settings.value.downloadPath = s.download_path || ''
       settings.value.songFormat = s.song_format || '{songName} - {artist}'
@@ -840,6 +812,8 @@ const loadSettings = async () => {
       settings.value.deleteRemoved = s.delete_removed === 'true'
       settings.value.playlistFormat = s.playlist_format || '{playlistName}/{songName} - {artist}'
       settings.value.quality = s.quality || 'high'
+      settings.value.storageType = s.storage_type || 'ssd'
+      settings.value.scanBeforeDownload = s.scan_before_download !== 'false'
       settings.value.resumeDownloads = s.resume_downloads !== 'false'
       settings.value.autoDataComplete = s.auto_data_complete === 'true'
       settings.value.dataCompleteInterval = parseInt(s.data_complete_interval) || 24
@@ -912,39 +886,53 @@ const loadSettings = async () => {
       }
     }
 
-    // 加载歌单同步配置
-    if (settings.value.autoSync) {
-      await loadSyncPlaylists()
-      await loadUserPlaylists()
-    }
-
     if (settings.value.sslCertPath && settings.value.sslKeyPath) {
       await validateSSLCert()
     }
   } catch {}
 }
 
-// 保存本地下载配置
-const saveDownloadSettings = async () => {
-  savingDownload.value = true
-  downloadSavedTip.value = false
+// 加载用户歌单列表
+const loadUserPlaylists = async () => {
+  loadingPlaylists.value = true
   try {
-    const data = {
-      download_path: settings.value.downloadPath,
-      song_format: settings.value.songFormat
-    }
-    await settingsAPI.updateSettings(data)
-    downloadSavedTip.value = true
-    await loadSettings()
-    setTimeout(() => { downloadSavedTip.value = false }, 2000)
-  } catch {
-    ElMessage.error('保存失败')
+    const res = await playlistAPI.getUserPlaylists()
+    userPlaylists.value = res.data.data || res.data.playlists || []
+  } catch (error: any) {
+    console.error('加载歌单失败:', error)
+    userPlaylists.value = []
   } finally {
-    savingDownload.value = false
+    loadingPlaylists.value = false
   }
 }
 
-// 保存歌单同步配置
+// 加载已选的同步歌单
+const loadSyncPlaylists = async () => {
+  try {
+    const res = await playlistAPI.getSyncPlaylists()
+    const syncPlaylists = res.data.data || []
+    selectedSyncPlaylists.value = syncPlaylists.map((p: any) => p.playlist_id)
+  } catch (error: any) {
+    console.error('加载同步歌单失败:', error)
+    selectedSyncPlaylists.value = []
+  }
+}
+
+// 手动触发同步
+const triggerSync = async () => {
+  syncing.value = true
+  try {
+    await playlistAPI.triggerManualSync()
+    ElMessage.success('同步任务已启动')
+  } catch (error: any) {
+    console.error('触发同步失败:', error)
+    ElMessage.error('触发同步失败: ' + (error.response?.data?.error || error.message))
+  } finally {
+    syncing.value = false
+  }
+}
+
+// 保存同步歌单配置
 const saveSyncSettings = async () => {
   savingSync.value = true
   syncSavedTip.value = false
@@ -986,22 +974,59 @@ const saveSyncSettings = async () => {
   }
 }
 
-// 手动触发同步
-const triggerSync = async () => {
-  syncing.value = true
+// 保存本地下载配置
+const saveDownloadSettings = async () => {
+  savingDownload.value = true
+  downloadSavedTip.value = false
   try {
-    const res = await playlistAPI.triggerManualSync()
-    if (res.data.success) {
-      ElMessage.success('同步任务已启动')
-      await loadSettings()
-    } else {
-      ElMessage.error(res.data.error || '同步失败')
+    const data = {
+      download_path: settings.value.downloadPath,
+      song_format: settings.value.songFormat,
+      storage_type: settings.value.storageType,
+      scan_before_download: settings.value.scanBeforeDownload.toString()
     }
-  } catch (error: any) {
-    console.error('触发同步失败:', error)
-    ElMessage.error('触发同步失败: ' + (error.response?.data?.error || error.message))
+    await settingsAPI.updateSettings(data)
+    downloadSavedTip.value = true
+    await loadSettings()
+    setTimeout(() => { downloadSavedTip.value = false }, 2000)
+  } catch {
+    ElMessage.error('保存失败')
   } finally {
-    syncing.value = false
+    savingDownload.value = false
+  }
+}
+
+
+const saveSyncSettings = async () => {
+  savingSync.value = true
+  syncSavedTip.value = false
+  try {
+    const data = {
+      auto_sync: settings.value.autoSync.toString(),
+      sync_interval: settings.value.syncInterval.toString(),
+      sync_unit: settings.value.syncUnit,
+      sync_mode: settings.value.syncMode,
+      sync_weekdays: JSON.stringify(settings.value.syncWeekdays),
+      sync_time: settings.value.syncTime,
+      delete_removed: settings.value.deleteRemoved.toString(),
+      playlist_format: settings.value.playlistFormat,
+      quality: settings.value.quality,
+      storage_type: settings.value.storageType,
+      scan_before_download: settings.value.scanBeforeDownload.toString(),
+      resume_downloads: settings.value.resumeDownloads.toString(),
+      auto_data_complete: settings.value.autoDataComplete.toString(),
+      data_complete_cover: settings.value.dataCompleteCover.toString(),
+      data_complete_lyrics: settings.value.dataCompleteLyrics.toString(),
+      data_complete_artist: settings.value.dataCompleteArtist.toString()
+    }
+    await settingsAPI.updateSettings(data)
+    syncSavedTip.value = true
+    await loadSettings()
+    setTimeout(() => { syncSavedTip.value = false }, 2000)
+  } catch {
+    ElMessage.error('保存失败')
+  } finally {
+    savingSync.value = false
   }
 }
 
@@ -1117,14 +1142,17 @@ const applyACME = async () => {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   // 先从 localStorage 恢复个性化设置，避免闪烁
   const savedAnimationDisabled = localStorage.getItem('disablePageAnimation')
   if (savedAnimationDisabled !== null) {
     disablePageAnimation.value = savedAnimationDisabled === 'true'
   }
   loadPlugins()
-  loadSettings()
+  await loadSettings()
+  // 加载用户歌单和已选的同步歌单
+  await loadUserPlaylists()
+  await loadSyncPlaylists()
 })
 
 // 同步插件字段值到 settings.acmeFields
@@ -1133,14 +1161,6 @@ const syncPluginFields = () => {
 }
 
 watch(pluginFieldValues, syncPluginFields, { deep: true })
-
-// 监听自动同步开关，开启时自动加载歌单列表
-watch(() => settings.value.autoSync, async (newVal) => {
-  if (newVal && userPlaylists.value.length === 0) {
-    await loadSyncPlaylists()
-    await loadUserPlaylists()
-  }
-})
 </script>
 
 <style scoped>
@@ -1522,28 +1542,74 @@ watch(() => settings.value.autoSync, async (newVal) => {
   color: var(--text-primary);
 }
 
-/* Section save bar */
-.section-save-bar {
+/* Playlist selector */
+.playlist-selector {
+  margin-top: 12px;
+  padding: 16px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+}
+
+.playlist-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.playlist-checkbox {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 20px 0 0 0;
-  margin-top: 16px;
-  border-top: 1px solid var(--border-color);
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-color);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.playlist-checkbox:hover {
+  background: var(--bg-hover);
+}
+
+.playlist-checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.playlist-name {
+  flex: 1;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.playlist-count {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.loading-text,
+.empty-text {
+  text-align: center;
+  padding: 20px;
+  color: var(--text-secondary);
+  font-size: 14px;
 }
 
 .trigger-sync-btn {
-  padding: 6px 16px;
-  background: #409eff;
-  color: #fff;
+  padding: 8px 16px;
+  background: #FFFA00;
+  color: #000;
   border: none;
   border-radius: 4px;
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
   transition: opacity 0.2s;
-  margin-right: 12px;
+  margin-right: 8px;
 }
 
 .trigger-sync-btn:hover {
@@ -1553,6 +1619,33 @@ watch(() => settings.value.autoSync, async (newVal) => {
 .trigger-sync-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.select-playlist-btn {
+  padding: 8px 16px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.select-playlist-btn:hover {
+  background: var(--bg-hover);
+  border-color: #FFFA00;
+}
+
+/* Section save bar */
+.section-save-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 20px 0 0 0;
+  margin-top: 16px;
+  border-top: 1px solid var(--border-color);
 }
 
 .save-btn {
@@ -1837,129 +1930,65 @@ watch(() => settings.value.autoSync, async (newVal) => {
     margin-bottom: 16px;
   }
 
-  .setting-item {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 12px;
-  }
-
-  .setting-label {
-    width: 100%;
-    text-align: left;
-  }
-
-  .setting-control {
-    width: 100%;
+  .setting-row {
     flex-direction: column;
     align-items: flex-start;
     gap: 8px;
+    padding: 10px 0;
   }
 
-  .quality-buttons,
-  .unit-buttons {
+  .setting-label,
+  .setting-label-col {
+    width: 100%;
+    min-width: auto;
+    text-align: left;
+    padding-right: 0;
+  }
+
+  .setting-input-wrap,
+  .setting-control-row {
     width: 100%;
   }
 
-  .quality-buttons button,
-  .unit-buttons button {
+  .quality-btns {
+    width: 100%;
+  }
+
+  .quality-btns button {
     flex: 1;
   }
 
-  .sync-status {
-    flex-direction: column;
-    gap: 12px;
+  .section-save-bar {
+    padding: 16px 0 0 0;
   }
 
-  .sync-status-label {
-    min-width: auto;
+  .save-btn {
+    width: 100%;
+    padding: 12px;
+    font-size: 15px;
   }
-}
 
-/* 歌单同步选择器样式 */
-.sync-playlists-selector {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
+  .weekday-btns {
+    flex-wrap: wrap;
+  }
 
-.playlist-actions {
-  display: flex;
-  gap: 8px;
-}
+  .weekday-btns button {
+    flex: 1 1 calc(33.333% - 8px);
+    min-width: 0;
+  }
 
-.small-btn {
-  padding: 6px 12px;
-  font-size: 13px;
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  background: var(--bg-color);
-  color: var(--text-primary);
-  cursor: pointer;
-  transition: all 0.2s;
-}
+  .tip-popup {
+    position: fixed;
+    left: 16px;
+    right: 16px;
+    top: auto;
+    bottom: 80px;
+    width: auto;
+  }
 
-.small-btn:hover:not(:disabled) {
-  background: var(--bg-secondary);
-  border-color: #FFFA00;
-}
-
-.small-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.no-playlists {
-  padding: 20px;
-  text-align: center;
-  color: var(--text-secondary);
-  font-size: 13px;
-  background: var(--bg-secondary);
-  border-radius: 4px;
-}
-
-.playlist-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-height: 300px;
-  overflow-y: auto;
-  padding: 8px;
-  background: var(--bg-secondary);
-  border-radius: 4px;
-  border: 1px solid var(--border-color);
-}
-
-.playlist-checkbox-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: var(--bg-color);
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.playlist-checkbox-item:hover {
-  background: var(--bg-hover, rgba(255, 250, 0, 0.05));
-}
-
-.playlist-checkbox-item input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  cursor: pointer;
-  accent-color: #FFFA00;
-}
-
-.playlist-name {
-  flex: 1;
-  font-size: 14px;
-  color: var(--text-primary);
-}
-
-.playlist-count {
-  font-size: 12px;
-  color: var(--text-secondary);
+  .tip-left {
+    left: 16px;
+    right: 16px;
+  }
 }
 </style>

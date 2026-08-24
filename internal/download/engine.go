@@ -20,6 +20,24 @@ import (
 	"endfield-music/internal/util"
 )
 
+// StorageType 存储类型
+type StorageType string
+
+const (
+	StorageHDD StorageType = "hdd"
+	StorageSSD StorageType = "ssd"
+	StorageAuto StorageType = "auto" // 自动检测
+)
+
+// StorageConfig 存储配置
+type StorageConfig struct {
+	Type            StorageType
+	ScanConcurrency int     // 扫盘并发数
+	DownloadConcurrency int // 下载并发数
+	BufferSize      int     // 下载缓冲区大小（字节）
+	FlushInterval   int     // 数据刷盘间隔（字节）
+}
+
 // Engine 下载引擎
 type Engine struct {
 	netease           *service.NeteaseService
@@ -32,6 +50,7 @@ type Engine struct {
 	mu                sync.RWMutex
 	tasks             map[int]*DownloadTask
 	playlistPhases    map[int]*PlaylistPhase
+	storageConfig     *StorageConfig // 存储配置
 }
 
 // DownloadTask 下载任务
@@ -72,7 +91,7 @@ type PlaylistPhase struct {
 
 // NewEngine 创建下载引擎
 func NewEngine(netease *service.NeteaseService, taskService *service.TaskService, concurrency int) *Engine {
-	return &Engine{
+	engine := &Engine{
 		netease:           netease,
 		metadataCompleter: service.NewMetadataCompleter(netease),
 		taskService:       taskService,
@@ -83,6 +102,66 @@ func NewEngine(netease *service.NeteaseService, taskService *service.TaskService
 		tasks:             make(map[int]*DownloadTask),
 		playlistPhases:    make(map[int]*PlaylistPhase),
 	}
+
+	// 初始化存储配置
+	engine.storageConfig = engine.detectStorageConfig()
+	fmt.Printf("[engine] storage config: type=%s, scanConcurrency=%d, downloadConcurrency=%d, bufferSize=%dKB, flushInterval=%dKB\n",
+		engine.storageConfig.Type,
+		engine.storageConfig.ScanConcurrency,
+		engine.storageConfig.DownloadConcurrency,
+		engine.storageConfig.BufferSize/1024,
+		engine.storageConfig.FlushInterval/1024)
+
+	return engine
+}
+
+// detectStorageConfig 检测存储配置
+func (e *Engine) detectStorageConfig() *StorageConfig {
+	config := &StorageConfig{}
+
+	// 从数据库读取存储类型设置，默认为SSD
+	storageType, _ := db.GetSetting("storage_type")
+	if storageType == "" {
+		storageType = "ssd" // 默认SSD配置
+	}
+
+	switch StorageType(storageType) {
+	case StorageHDD:
+		config.Type = StorageHDD
+	case StorageSSD:
+		config.Type = StorageSSD
+	default:
+		config.Type = StorageSSD // 默认SSD
+	}
+
+	// 根据存储类型设置并发和缓冲区参数
+	switch config.Type {
+	case StorageHDD:
+		// HDD: 减少并发避免磁头抖动，大缓冲区减少IO次数
+		config.ScanConcurrency = 2
+		config.DownloadConcurrency = 2
+		config.BufferSize = 256 * 1024  // 256KB
+		config.FlushInterval = 1024 * 1024 // 1MB
+	case StorageSSD:
+		// SSD: 增加并发，适中缓冲区
+		config.ScanConcurrency = 4
+		config.DownloadConcurrency = 4
+		config.BufferSize = 64 * 1024   // 64KB
+		config.FlushInterval = 512 * 1024 // 512KB
+	default:
+		// 默认配置（SSD）
+		config.ScanConcurrency = 4
+		config.DownloadConcurrency = 4
+		config.BufferSize = 64 * 1024
+		config.FlushInterval = 512 * 1024
+	}
+
+	return config
+}
+
+// GetStorageConfig 获取存储配置
+func (e *Engine) GetStorageConfig() *StorageConfig {
+	return e.storageConfig
 }
 
 // Start 启动工作协程
@@ -161,13 +240,11 @@ func (e *Engine) recoverIncompleteTasks(ctx context.Context) {
 			if d.Quality == "lossless" {
 				ext = ".flac"
 			}
-			songFormat, _ := db.GetSettingByUser(d.SystemUserID, "song_format")
+			songFormat, _ := db.GetSetting("song_format")
 			if songFormat == "" {
 				songFormat = "{songName} - {artist}"
 			}
-			formattedName := strings.ReplaceAll(songFormat, "{songName}", d.SongName)
-			formattedName = strings.ReplaceAll(formattedName, "{artist}", d.Artist)
-			filename := sanitizeFilename(formattedName) + ext
+			filename := formatSongFilename(songFormat, d.SongName, d.Artist, d.Album) + ext
 			
 			// 获取用户名用于路径隔离
 			username := "default"
@@ -418,15 +495,14 @@ func (e *Engine) AddTaskWithSubDir(songID int, quality string, subDir string, pl
 	e.mu.Unlock()
 
 	db.SaveDownloadHistory(&model.DownloadHistory{
-		SongID:       songID,
-		SongName:     songName,
-		Artist:       artist,
-		Album:        album,
-		Quality:      quality,
-		Status:       "pending",
-		SubDir:       subDir,
-		PlaylistID:   playlistID,
-		SystemUserID: systemUserID,
+		SongID:     songID,
+		SongName:   songName,
+		Artist:     artist,
+		Album:      album,
+		Quality:    quality,
+		Status:     "pending",
+		SubDir:     subDir,
+		PlaylistID: playlistID,
 	})
 
 	e.downloadQueue <- task
@@ -565,15 +641,34 @@ type SongInfo struct {
 // asyncScanAndDownload 异步执行扫描和下载
 func (e *Engine) asyncScanAndDownload(playlistID int, playlistName string, trackIDs []int, quality string, scanTask *service.Task, systemUserID int) {
 	ctx := context.Background()
-	
-	// 执行扫描
-	e.taskService.SetTaskStatus(scanTask.ID, service.TaskStatusRunning)
-	skippedSongIDs, remainingInfos, copiedSongIDs := e.scanPlaylistSongs(ctx, trackIDs, quality, playlistName, playlistID, scanTask, systemUserID)
-	
+
+	// 检查是否启用下载前扫描
+	scanBeforeDownload := true
+	if val, err := db.GetSettingByUser(systemUserID, "scan_before_download"); err == nil {
+		scanBeforeDownload = val != "false"
+	}
+
+	var skippedSongIDs []int
+	var remainingInfos []SongInfo
+	var copiedSongIDs []int
+
+	if scanBeforeDownload {
+		// 执行扫描
+		e.taskService.SetTaskStatus(scanTask.ID, service.TaskStatusRunning)
+		skippedSongIDs, remainingInfos, copiedSongIDs = e.scanPlaylistSongs(ctx, trackIDs, quality, playlistName, playlistID, scanTask, systemUserID)
+	} else {
+		// 关闭扫描，直接覆盖下载所有歌曲
+		fmt.Printf("[asyncScanAndDownload] scan disabled, downloading all %d songs\n", len(trackIDs))
+		// 不需要提前获取歌曲信息，下载引擎会自行获取
+		for _, songID := range trackIDs {
+			remainingInfos = append(remainingInfos, SongInfo{SongID: songID})
+		}
+	}
+
 	skippedCount := len(skippedSongIDs)
 	copiedCount := len(copiedSongIDs)
 	remainingCount := len(remainingInfos)
-	
+
 	fmt.Printf("[asyncScanAndDownload] scan complete: %d remaining, %d skipped, %d copied\n", remainingCount, skippedCount, copiedCount)
 
 	// 检查是否启用"删除已移除歌曲"
@@ -659,13 +754,11 @@ func (e *Engine) asyncScanAndDownload(playlistID int, playlistName string, track
 		os.MkdirAll(targetDir, 0755)
 		
 		ext := filepath.Ext(history.FilePath)
-		songFormat, _ := db.GetSettingByUser(systemUserID, "song_format")
+		songFormat, _ := db.GetSetting("song_format")
 		if songFormat == "" {
 			songFormat = "{songName} - {artist}"
 		}
-		formattedName := strings.ReplaceAll(songFormat, "{songName}", history.SongName)
-		formattedName = strings.ReplaceAll(formattedName, "{artist}", history.Artist)
-		filename := sanitizeFilename(formattedName) + ext
+		filename := formatSongFilename(songFormat, history.SongName, history.Artist, history.Album) + ext
 		targetPath := filepath.Join(targetDir, filename)
 		
 		// 复制文件
@@ -676,18 +769,17 @@ func (e *Engine) asyncScanAndDownload(playlistID int, playlistName string, track
 		
 		// 保存下载记录
 		db.SaveDownloadHistory(&model.DownloadHistory{
-			SongID:       songID,
-			SongName:     history.SongName,
-			Artist:       history.Artist,
-			Album:        history.Album,
-			Quality:      history.Quality,
-			Status:       "completed",
-			FilePath:     targetPath,
-			FileSize:     history.FileSize,
-			SubDir:       playlistName,
-			PlaylistID:   playlistID,
-			Phase:        "download",
-			SystemUserID: systemUserID,
+			SongID:     songID,
+			SongName:   history.SongName,
+			Artist:     history.Artist,
+			Album:      history.Album,
+			Quality:    history.Quality,
+			Status:     "completed",
+			FilePath:   targetPath,
+			FileSize:   history.FileSize,
+			SubDir:     playlistName,
+			PlaylistID: playlistID,
+			Phase:      "download",
 		})
 		
 		virtualTask := &DownloadTask{
@@ -776,15 +868,16 @@ func (e *Engine) asyncScanAndDownload(playlistID int, playlistName string, track
 	for _, info := range remainingInfos {
 		// 直接创建任务，不再调用AddTaskWithSubDir（避免重复GetSongDetail）
 		task := &DownloadTask{
-			SongID:     info.SongID,
-			SongName:   info.Name,
-			Artist:     info.Artist,
-			Album:      info.Album,
-			Quality:    quality,
-			SubDir:     playlistName,
-			PlaylistID: playlistID,
-			Status:     "pending",
-			CreatedAt:  time.Now(),
+			SongID:       info.SongID,
+			SongName:     info.Name,
+			Artist:       info.Artist,
+			Album:        info.Album,
+			Quality:      quality,
+			SubDir:       playlistName,
+			PlaylistID:   playlistID,
+			Status:       "pending",
+			CreatedAt:    time.Now(),
+			SystemUserID: systemUserID,
 		}
 		
 		e.mu.Lock()
@@ -793,15 +886,14 @@ func (e *Engine) asyncScanAndDownload(playlistID int, playlistName string, track
 		e.mu.Unlock()
 		
 		db.SaveDownloadHistory(&model.DownloadHistory{
-			SongID:       info.SongID,
-			SongName:     info.Name,
-			Artist:       info.Artist,
-			Album:        info.Album,
-			Quality:      quality,
-			Status:       "pending",
-			SubDir:       playlistName,
-			PlaylistID:   playlistID,
-			SystemUserID: systemUserID,
+			SongID:     info.SongID,
+			SongName:   info.Name,
+			Artist:     info.Artist,
+			Album:      info.Album,
+			Quality:    quality,
+			Status:     "pending",
+			SubDir:     playlistName,
+			PlaylistID: playlistID,
 		})
 		
 		e.downloadQueue <- task
@@ -854,139 +946,216 @@ func (e *Engine) scanPlaylistSongs(ctx context.Context, trackIDs []int, quality,
 	var skipped []int
 	var remaining []SongInfo
 	var copied []int
-	
-	// 获取用户名用于路径隔离
+
+	// 构建目标目录（包含用户隔离路径）
 	username := "default"
 	if systemUserID > 0 {
 		if user, err := db.GetSystemUserByID(systemUserID); err == nil && user != nil {
 			username = sanitizeFilename(user.Username)
 		}
 	}
-	
-	// 构建目标目录（用户隔离）
 	targetDir := filepath.Join("/music", username)
 	if playlistName != "" {
 		targetDir = filepath.Join("/music", username, playlistName)
 	}
-	
-	// 扫描每首歌曲
-	for i, songID := range trackIDs {
-		// 更新扫描进度
-		e.taskService.UpdateTaskProgress(scanTask.ID, i+1, len(trackIDs))
-		e.taskService.UpdateTaskCurrentFile(scanTask.ID, fmt.Sprintf("扫描中... (%d/%d)", i+1, len(trackIDs)), 0, 0)
-		
-		// 先检查数据库是否有下载记录（避免不必要的API调用）
-		history, _ := db.GetDownloadBySongID(songID)
-		if history != nil && history.FilePath != "" {
-			// 数据库有记录，检查文件是否存在
+
+	// 优化1: 批量预加载所有下载记录到内存
+	fmt.Printf("[scan] preloading download history to memory...\n")
+	downloadMap := make(map[int]*model.DownloadHistory) // songID -> history
+	allHistory, _ := db.GetDownloadHistory()
+	for i := range allHistory {
+		h := &allHistory[i]
+		// 保留最新的记录
+		if existing, ok := downloadMap[h.SongID]; !ok || h.CreatedAt.After(existing.CreatedAt) {
+			downloadMap[h.SongID] = h
+		}
+	}
+	fmt.Printf("[scan] loaded %d download records\n", len(downloadMap))
+
+	// 优化2: 预扫描目标目录文件
+	fmt.Printf("[scan] pre-scanning target directory: %s\n", targetDir)
+	existingFiles := make(map[string]os.FileInfo)
+	if info, err := os.Stat(targetDir); err == nil && info.IsDir() {
+		files, _ := os.ReadDir(targetDir)
+		for _, f := range files {
+			if !f.IsDir() {
+				if fi, err := f.Info(); err == nil {
+					existingFiles[f.Name()] = fi
+				}
+			}
+		}
+	}
+	fmt.Printf("[scan] found %d existing files in target directory\n", len(existingFiles))
+
+	// 获取歌曲格式和扩展名
+	ext := ".mp3"
+	if quality == "lossless" {
+		ext = ".flac"
+	}
+	songFormat, _ := db.GetSetting("song_format")
+	if songFormat == "" {
+		songFormat = "{songName} - {artist}"
+	}
+
+	// 优化3: 使用并发处理需要API查询的歌曲
+	type scanResult struct {
+		songID   int
+		songInfo SongInfo
+		status   string // "skip", "copy", "need_download"
+	}
+
+	// 分类歌曲：已下载/可复制/需要API查询
+	var needAPISongIDs []int
+	for _, songID := range trackIDs {
+		// 检查数据库是否有下载记录
+		if history, ok := downloadMap[songID]; ok && history.FilePath != "" {
 			if _, err := os.Stat(history.FilePath); err == nil {
-				// 文件存在，跳过
 				skipped = append(skipped, songID)
 				fmt.Printf("[scan] song already downloaded: %s (songID=%d)\n", history.SongName, songID)
-				
-				// 更新扫盘记录
 				db.SaveScanRecord(songID, history.SongName, history.Artist, history.Album, history.FilePath,
 					history.FileSize, time.Now(), true, true, history.MetadataCompleted, playlistID, playlistName)
 				continue
 			}
 		}
-		
+
 		// 检查是否在其他歌单已下载（跨歌单复制）
-		if otherHistory, _ := db.GetAnyDownloadedSong(songID); otherHistory != nil {
-			if _, err := os.Stat(otherHistory.FilePath); err == nil {
+		if history, ok := downloadMap[songID]; ok && history.Status == "completed" && history.FilePath != "" {
+			if _, err := os.Stat(history.FilePath); err == nil {
 				copied = append(copied, songID)
-				fmt.Printf("[scan] song available in other playlist: %s (songID=%d)\n", otherHistory.SongName, songID)
+				fmt.Printf("[scan] song available in other playlist: %s (songID=%d)\n", history.SongName, songID)
 				continue
 			}
 		}
-		
-		// 需要下载，获取歌曲详情
-		e.rateLimiter.Wait()
-		body, err := e.netease.GetSongDetail(songID)
-		if err != nil {
-			fmt.Printf("[scan] failed to get song detail for %d: %v\n", songID, err)
-			remaining = append(remaining, SongInfo{SongID: songID})
-			continue
-		}
-		
-		var result map[string]interface{}
-		json.Unmarshal(body, &result)
-		
-		// 检测限速
-		if code, ok := result["code"]; ok {
-			switch v := code.(type) {
-			case float64:
-				if v == -1 || v == 429 || v == 301 {
-					e.rateLimiter.Increase()
-					fmt.Printf("[ratelimit] 扫描API限速，间隔调整为 %v\n", e.rateLimiter.GetInterval())
-					remaining = append(remaining, SongInfo{SongID: songID})
+
+		// 需要API查询
+		needAPISongIDs = append(needAPISongIDs, songID)
+	}
+
+	fmt.Printf("[scan] %d songs need API query, processing concurrently...\n", len(needAPISongIDs))
+
+	// 并发处理需要API查询的歌曲
+	results := make(chan scanResult, len(needAPISongIDs))
+	var wg sync.WaitGroup
+
+	// 使用存储配置的并发数
+	workerCount := e.storageConfig.ScanConcurrency
+	if len(needAPISongIDs) < workerCount {
+		workerCount = len(needAPISongIDs)
+	}
+
+	songIDChan := make(chan int, len(needAPISongIDs))
+	for _, id := range needAPISongIDs {
+		songIDChan <- id
+	}
+	close(songIDChan)
+
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for songID := range songIDChan {
+				// 检查是否被取消
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+
+				// 限速等待
+				e.rateLimiter.Wait()
+				body, err := e.netease.GetSongDetail(songID)
+				if err != nil {
+					fmt.Printf("[scan] failed to get song detail for %d: %v\n", songID, err)
+					results <- scanResult{songID: songID, status: "need_download", songInfo: SongInfo{SongID: songID}}
 					continue
 				}
+
+				var result map[string]interface{}
+				json.Unmarshal(body, &result)
+
+				// 检测限速
+				if code, ok := result["code"]; ok {
+					if v, ok := code.(float64); ok && (v == -1 || v == 429 || v == 301) {
+						e.rateLimiter.Increase()
+						fmt.Printf("[ratelimit] 扫描API限速，间隔调整为 %v\n", e.rateLimiter.GetInterval())
+						results <- scanResult{songID: songID, status: "need_download", songInfo: SongInfo{SongID: songID}}
+						continue
+					}
+				}
+				e.rateLimiter.Decrease()
+
+				songs, ok := result["songs"].([]interface{})
+				if !ok || len(songs) == 0 {
+					results <- scanResult{songID: songID, status: "need_download", songInfo: SongInfo{SongID: songID}}
+					continue
+				}
+
+				song := songs[0].(map[string]interface{})
+				songName := ""
+				if v, ok := song["name"].(string); ok {
+					songName = v
+				}
+				artist := ""
+				if ar, ok := song["ar"].([]interface{}); ok && len(ar) > 0 {
+					if a, ok := ar[0].(map[string]interface{}); ok {
+						artist, _ = a["name"].(string)
+					}
+				}
+				album := ""
+				if al, ok := song["al"].(map[string]interface{}); ok {
+					album, _ = al["name"].(string)
+				}
+
+				// 检查文件是否已存在
+				filename := formatSongFilename(songFormat, songName, artist, album) + ext
+
+				if fileInfo, exists := existingFiles[filename]; exists {
+					// 文件存在
+					lyricsPath := strings.TrimSuffix(filename, ext) + ".lrc"
+					_, lyricsErr := os.Stat(filepath.Join(targetDir, lyricsPath))
+
+					targetPath := filepath.Join(targetDir, filename)
+					db.SaveScanRecord(songID, songName, artist, album, targetPath, fileInfo.Size(), fileInfo.ModTime(),
+						true, lyricsErr == nil, false, playlistID, playlistName)
+
+					results <- scanResult{songID: songID, status: "skip", songInfo: SongInfo{
+						SongID: songID, Name: songName, Artist: artist, Album: album,
+					}}
+					fmt.Printf("[scan] song already exists: %s\n", songName)
+					continue
+				}
+
+				// 需要下载
+				results <- scanResult{songID: songID, status: "need_download", songInfo: SongInfo{
+					SongID: songID, Name: songName, Artist: artist, Album: album,
+				}}
 			}
-		}
-		e.rateLimiter.Decrease()
-		
-		songs, ok := result["songs"].([]interface{})
-		if !ok || len(songs) == 0 {
-			remaining = append(remaining, SongInfo{SongID: songID})
-			continue
-		}
-		
-		song := songs[0].(map[string]interface{})
-		songName := ""
-		if v, ok := song["name"].(string); ok {
-			songName = v
-		}
-		artist := ""
-		if ar, ok := song["ar"].([]interface{}); ok && len(ar) > 0 {
-			if a, ok := ar[0].(map[string]interface{}); ok {
-				artist, _ = a["name"].(string)
-			}
-		}
-		album := ""
-		if al, ok := song["al"].(map[string]interface{}); ok {
-			album, _ = al["name"].(string)
-		}
-		
-		// 检查是否已在本歌单下载（通过文件名匹配）
-		ext := ".mp3"
-		if quality == "lossless" {
-			ext = ".flac"
-		}
-		songFormat, _ := db.GetSettingByUser(systemUserID, "song_format")
-		if songFormat == "" {
-			songFormat = "{songName} - {artist}"
-		}
-		formattedName := strings.ReplaceAll(songFormat, "{songName}", songName)
-		formattedName = strings.ReplaceAll(formattedName, "{artist}", artist)
-		filename := sanitizeFilename(formattedName) + ext
-		targetPath := filepath.Join(targetDir, filename)
-		
-		if info, err := os.Stat(targetPath); err == nil {
-			// 文件存在，检查元数据状态
-			lyricsPath := strings.TrimSuffix(targetPath, ext) + ".lrc"
-			_, lyricsErr := os.Stat(lyricsPath)
-			
-			metadataCompleted := history != nil && history.MetadataCompleted
-			
-			// 保存扫盘记录
-			db.SaveScanRecord(songID, songName, artist, album, targetPath, info.Size(), info.ModTime(),
-				true, lyricsErr == nil, metadataCompleted, playlistID, playlistName)
-			
-			skipped = append(skipped, songID)
-			fmt.Printf("[scan] song already exists: %s\n", songName)
-			continue
-		}
-		
-		// 需要下载，保存歌曲信息（避免后续重复调用API）
-		remaining = append(remaining, SongInfo{
-			SongID: songID,
-			Name:   songName,
-			Artist: artist,
-			Album:  album,
-		})
+		}()
 	}
-	
+
+	// 等待所有worker完成并收集结果
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	processedCount := len(skipped) + len(copied)
+	for result := range results {
+		processedCount++
+		// 更新扫描进度
+		e.taskService.UpdateTaskProgress(scanTask.ID, processedCount, len(trackIDs))
+		e.taskService.UpdateTaskCurrentFile(scanTask.ID, fmt.Sprintf("扫描中... (%d/%d)", processedCount, len(trackIDs)), 0, 0)
+
+		switch result.status {
+		case "skip":
+			skipped = append(skipped, result.songID)
+		case "copy":
+			copied = append(copied, result.songID)
+		case "need_download":
+			remaining = append(remaining, result.songInfo)
+		}
+	}
+
 	fmt.Printf("[scanPlaylistSongs] result: %d skipped, %d copied, %d remaining\n", len(skipped), len(copied), len(remaining))
 	return skipped, remaining, copied
 }
@@ -1114,13 +1283,11 @@ func (e *Engine) executeTask(ctx context.Context, task *DownloadTask) {
 	}
 
 	// 从设置读取文件名格式，默认 {songName} - {artist}
-	songFormat, _ := db.GetSettingByUser(task.SystemUserID, "song_format")
+	songFormat, _ := db.GetSetting("song_format")
 	if songFormat == "" {
 		songFormat = "{songName} - {artist}"
 	}
-	formattedName := strings.ReplaceAll(songFormat, "{songName}", task.SongName)
-	formattedName = strings.ReplaceAll(formattedName, "{artist}", task.Artist)
-	filename := sanitizeFilename(formattedName) + ext
+	filename := formatSongFilename(songFormat, task.SongName, task.Artist, task.Album) + ext
 
 	// 获取用户名用于路径隔离
 	username := "default"
@@ -1133,12 +1300,11 @@ func (e *Engine) executeTask(ctx context.Context, task *DownloadTask) {
 	baseDir := filepath.Join("/music", username)
 	if task.SubDir != "" {
 		baseDir = filepath.Join("/music", username, task.SubDir)
-	}
-	// 确保目录存在（无论是单曲下载还是歌单下载）
-	if err := os.MkdirAll(baseDir, 0755); err != nil {
-		e.failTask(task, fmt.Sprintf("创建目录失败: %v", err))
-		e.checkPlaylistPhaseComplete(task.PlaylistID)
-		return
+		if err := os.MkdirAll(baseDir, 0755); err != nil {
+			e.failTask(task, fmt.Sprintf("创建目录失败: %v", err))
+			e.checkPlaylistPhaseComplete(task.PlaylistID)
+			return
+		}
 	}
 	filePath := filepath.Join(baseDir, filename)
 	task.FilePath = filePath
@@ -1194,8 +1360,9 @@ func (e *Engine) downloadFile(ctx context.Context, url, dstPath string, task *Do
 
 	// 检查是否启用断点续传（使用用户设置）
 	resumeEnabled := true
-	if val, err := db.GetSettingByUser(task.SystemUserID, "resume_downloads"); err == nil && val != "" {
-		resumeEnabled = val == "true"
+	userID := task.SystemUserID
+	if val, err := db.GetSettingByUser(userID, "resume_downloads"); err == nil {
+		resumeEnabled = val != "false"
 	}
 
 	if resumeEnabled {
@@ -1255,8 +1422,12 @@ func (e *Engine) downloadFile(ctx context.Context, url, dstPath string, task *Do
 	}
 	defer out.Close()
 
+	// 使用存储配置的缓冲区大小和刷盘间隔
+	bufferSize := e.storageConfig.BufferSize
+	flushInterval := e.storageConfig.FlushInterval
+
 	total := resp.ContentLength + downloadedSize
-	buf := make([]byte, 64*1024)
+	buf := make([]byte, bufferSize)
 	var lastPersist int64 = 0
 
 	for {
@@ -1274,8 +1445,8 @@ func (e *Engine) downloadFile(ctx context.Context, url, dstPath string, task *Do
 			task.TotalSize = total
 			e.mu.Unlock()
 
-			// 每 512KB 持久化一次到 DB
-			if downloadedSize-lastPersist >= 512*1024 {
+			// 按存储配置的刷盘间隔持久化到 DB
+			if downloadedSize-lastPersist >= int64(flushInterval) {
 				db.UpdateDownloadProgress(task.SongID, downloadedSize, total)
 				lastPersist = downloadedSize
 
@@ -1627,6 +1798,61 @@ func (e *Engine) VerifyMetadata(playlistID int) (string, error) {
 	return verifyTask.ID, nil
 }
 
+
+// VerifyMetadataAll 对所有同步歌单执行元数据补全
+func (e *Engine) VerifyMetadataAll(systemUserID int) (string, error) {
+	enabledPlaylistIDs, err := db.GetEnabledSyncPlaylists(systemUserID)
+	if err != nil {
+		return "", fmt.Errorf("获取同步歌单列表失败: %w", err)
+	}
+	if len(enabledPlaylistIDs) == 0 {
+		hasSync, _ := db.SyncPlaylistsExist(systemUserID)
+		if hasSync {
+			return "", fmt.Errorf("没有启用的同步歌单")
+		}
+		user, err := db.GetCurrentUserForSystem(systemUserID)
+		if err != nil || user == nil {
+			return "", fmt.Errorf("未登录")
+		}
+		body, err := e.netease.GetUserPlaylists(user.UserID, user.Cookie)
+		if err != nil {
+			return "", fmt.Errorf("获取歌单列表失败: %w", err)
+		}
+		var result map[string]interface{}
+		json.Unmarshal(body, &result)
+		if playlistData, ok := result["playlist"].([]interface{}); ok {
+			for _, p := range playlistData {
+				playlist := p.(map[string]interface{})
+				if id, ok := playlist["id"].(float64); ok {
+					enabledPlaylistIDs = append(enabledPlaylistIDs, int(id))
+				}
+			}
+		}
+	}
+	if len(enabledPlaylistIDs) == 0 {
+		return "", fmt.Errorf("没有找到需要补全的歌单")
+	}
+	totalTask := e.taskService.CreateTask(service.TaskTypeDataComplete,
+		fmt.Sprintf("批量验证补全 %d 个歌单元数据", len(enabledPlaylistIDs)), "")
+	e.taskService.SetTaskStatus(totalTask.ID, service.TaskStatusRunning)
+	totalTask.Total = len(enabledPlaylistIDs)
+	completedCount := 0
+	for _, playlistID := range enabledPlaylistIDs {
+		taskID, err := e.VerifyMetadata(playlistID)
+		if err != nil {
+			fmt.Printf("[VerifyMetadataAll] playlist %d failed: %v\n", playlistID, err)
+			continue
+		}
+		fmt.Printf("[VerifyMetadataAll] playlist %d -> task %s\n", playlistID, taskID)
+		completedCount++
+	}
+	e.taskService.UpdateTaskProgress(totalTask.ID, completedCount, len(enabledPlaylistIDs))
+	if completedCount == 0 {
+		e.taskService.SetTaskStatus(totalTask.ID, service.TaskStatusFailed)
+		return "", fmt.Errorf("所有歌单元数据已补全或无可用歌单")
+	}
+	return totalTask.ID, nil
+}
 func (e *Engine) failTask(task *DownloadTask, errMsg string) {
 	e.mu.Lock()
 	task.Status = "failed"
@@ -1660,7 +1886,7 @@ func (e *Engine) GetTaskService() *service.TaskService {
 	return e.taskService
 }
 
-// settingsWatcher 监控设置变化，执行定时任务
+// settingsWatcher 监控设置变化，执行定时任务（使用全局设置，因为自动同步是系统级功能）
 func (e *Engine) settingsWatcher(ctx context.Context) {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
@@ -1803,121 +2029,134 @@ func (e *Engine) shouldTriggerScheduleSync() bool {
 func (e *Engine) RunAutoSync(ctx context.Context) {
 	fmt.Println("[autoSync] starting auto sync...")
 
-	// 获取当前用户
-	user, err := db.GetCurrentUser()
-	if err != nil || user == nil {
-		fmt.Printf("[autoSync] no user logged in: %v\n", err)
-		return
-	}
-
-	// 获取用户选中的同步歌单
-	enabledPlaylistIDs, err := db.GetEnabledSyncPlaylists(user.SystemUserID)
+	// 获取所有系统用户
+	systemUsers, err := db.GetAllSystemUsers()
 	if err != nil {
-		fmt.Printf("[autoSync] failed to get sync playlists: %v\n", err)
+		fmt.Printf("[autoSync] failed to get system users: %v\n", err)
 		return
 	}
 
-	// 如果没有配置同步歌单，默认同步所有歌单（向后兼容）
-	hasSyncPlaylists, _ := db.SyncPlaylistsExist(user.SystemUserID)
-
-	// 构建需要同步的歌单ID集合
-	syncPlaylistSet := make(map[int]bool)
-	if hasSyncPlaylists {
-		for _, id := range enabledPlaylistIDs {
-			syncPlaylistSet[id] = true
-		}
-		fmt.Printf("[autoSync] syncing %d selected playlists\n", len(syncPlaylistSet))
-	}
-
-	// 获取用户歌单列表
-	body, err := e.netease.GetUserPlaylists(user.UserID, user.Cookie)
-	if err != nil {
-		fmt.Printf("[autoSync] failed to get playlists: %v\n", err)
-		return
-	}
-
-	var result map[string]interface{}
-	json.Unmarshal(body, &result)
-
-	playlistData, ok := result["playlist"].([]interface{})
-	if !ok {
-		fmt.Println("[autoSync] no playlists found")
-		return
-	}
-
-	quality, _ := db.GetSettingByUser(user.SystemUserID, "quality")
-	if quality == "" {
-		quality = "high"
-	}
-
-	// 创建同步任务日志
-	syncTask := e.taskService.CreateTask(service.TaskTypeSync, "自动同步歌单", "")
-	e.taskService.SetTaskStatus(syncTask.ID, service.TaskStatusRunning)
-
+	totalSynced := 0
 	totalPlaylists := 0
-	syncedPlaylists := 0
-	var triggeredPlaylistIDs []int
 
-	// 先设置初始进度，避免前端显示 0/0
-	e.taskService.UpdateTaskProgress(syncTask.ID, 0, 0)
-
-	for _, p := range playlistData {
-		playlist := p.(map[string]interface{})
-		playlistID := int(playlist["id"].(float64))
-		playlistName := ""
-		if name, ok := playlist["name"].(string); ok {
-			playlistName = name
-		}
-
-		// 如果配置了同步歌单，只同步选中的歌单
-		if hasSyncPlaylists && !syncPlaylistSet[playlistID] {
-			fmt.Printf("[autoSync] skipping playlist: %s (id=%d) - not selected\n", playlistName, playlistID)
+	// 对每个系统用户执行同步
+	for _, sysUser := range systemUsers {
+		// 获取该用户绑定的网易云账号
+		user, err := db.GetCurrentUserForSystem(sysUser.ID)
+		if err != nil || user == nil {
+			fmt.Printf("[autoSync] user %d has no netease account bound, skipping\n", sysUser.ID)
 			continue
 		}
 
-		fmt.Printf("[autoSync] syncing playlist: %s (id=%d)\n", playlistName, playlistID)
+		// 获取该用户选择的同步歌单
+		enabledPlaylistIDs, err := db.GetEnabledSyncPlaylists(sysUser.ID)
+		if err != nil {
+			fmt.Printf("[autoSync] user %d failed to get sync playlists: %v\n", sysUser.ID, err)
+			continue
+		}
 
-		// 检查是否已有活跃任务
-		e.mu.RLock()
-		phase, exists := e.playlistPhases[playlistID]
-		e.mu.RUnlock()
-		if exists {
-			phase.mu.Lock()
-			isActive := phase.Phase == "scanning" || phase.Phase == "downloading" || phase.Phase == "metadata"
-			phase.mu.Unlock()
-			if isActive {
-				fmt.Printf("[autoSync] skipping playlist %s (active task)\n", playlistName)
-				totalPlaylists++
-				triggeredPlaylistIDs = append(triggeredPlaylistIDs, playlistID)
+		// 检查是否配置了同步歌单
+		hasSyncPlaylists, _ := db.SyncPlaylistsExist(sysUser.ID)
+
+		// 构建需要同步的歌单ID集合
+		syncPlaylistSet := make(map[int]bool)
+		if hasSyncPlaylists {
+			for _, id := range enabledPlaylistIDs {
+				syncPlaylistSet[id] = true
+			}
+			fmt.Printf("[autoSync] user %d syncing %d selected playlists\n", sysUser.ID, len(syncPlaylistSet))
+		}
+
+		// 获取用户歌单列表
+		body, err := e.netease.GetUserPlaylists(user.UserID)
+		if err != nil {
+			fmt.Printf("[autoSync] user %d failed to get playlists: %v\n", sysUser.ID, err)
+			continue
+		}
+
+		var result map[string]interface{}
+		json.Unmarshal(body, &result)
+
+		playlistData, ok := result["playlist"].([]interface{})
+		if !ok {
+			fmt.Printf("[autoSync] user %d has no playlists\n", sysUser.ID)
+			continue
+		}
+
+		quality, _ := db.GetSettingByUser(sysUser.ID, "quality")
+		if quality == "" {
+			quality = "high"
+		}
+
+		// 创建同步任务日志
+		syncTask := e.taskService.CreateTask(service.TaskTypeSync, fmt.Sprintf("自动同步歌单 - %s", sysUser.Username), "")
+		e.taskService.SetTaskStatus(syncTask.ID, service.TaskStatusRunning)
+
+		userSynced := 0
+		userTotal := 0
+		var userTriggeredPlaylistIDs []int
+
+		for _, p := range playlistData {
+			playlist := p.(map[string]interface{})
+			playlistID := int(playlist["id"].(float64))
+			playlistName := ""
+			if name, ok := playlist["name"].(string); ok {
+				playlistName = name
+			}
+
+			// 如果配置了同步歌单，只同步选中的歌单
+			if hasSyncPlaylists && !syncPlaylistSet[playlistID] {
+				fmt.Printf("[autoSync] user %d skipping playlist: %s (id=%d) - not selected\n", sysUser.ID, playlistName, playlistID)
 				continue
 			}
+
+			fmt.Printf("[autoSync] user %d syncing playlist: %s (id=%d)\n", sysUser.ID, playlistName, playlistID)
+
+			// 检查是否已有活跃任务
+			e.mu.RLock()
+			phase, exists := e.playlistPhases[playlistID]
+			e.mu.RUnlock()
+			if exists {
+				phase.mu.Lock()
+				isActive := phase.Phase == "scanning" || phase.Phase == "downloading" || phase.Phase == "metadata"
+				phase.mu.Unlock()
+				if isActive {
+					fmt.Printf("[autoSync] user %d skipping playlist %s (active task)\n", sysUser.ID, playlistName)
+					userTotal++
+					userTriggeredPlaylistIDs = append(userTriggeredPlaylistIDs, playlistID)
+					continue
+				}
+			}
+
+			userTotal++
+
+			// 触发歌单下载（会自动创建扫描→下载→补全任务）
+			_, _, _, err := e.AddPlaylistTask(playlistID, quality, sysUser.ID)
+			if err != nil {
+				fmt.Printf("[autoSync] user %d failed to sync playlist %s: %v\n", sysUser.ID, playlistName, err)
+				continue
+			}
+			userSynced++
+			userTriggeredPlaylistIDs = append(userTriggeredPlaylistIDs, playlistID)
 		}
 
-		totalPlaylists++
-
-		// 触发歌单下载（会自动创建扫描→下载→补全任务）
-		_, _, _, err := e.AddPlaylistTask(playlistID, quality, user.SystemUserID)
-		if err != nil {
-			fmt.Printf("[autoSync] failed to sync playlist %s: %v\n", playlistName, err)
-			continue
+		// 等待所有触发的歌单任务完成（扫描→下载→补全）
+		triggeredCount := len(userTriggeredPlaylistIDs)
+		if triggeredCount > 0 {
+			fmt.Printf("[autoSync] user %d waiting for %d playlist tasks to complete...\n", sysUser.ID, triggeredCount)
+			e.taskService.UpdateTaskProgress(syncTask.ID, 0, triggeredCount)
+			e.waitPlaylistTasksComplete(ctx, userTriggeredPlaylistIDs, syncTask.ID, triggeredCount)
+		} else {
+			e.taskService.UpdateTaskProgress(syncTask.ID, 0, 0)
+			e.taskService.CompleteTask(syncTask.ID)
 		}
-		syncedPlaylists++
-		triggeredPlaylistIDs = append(triggeredPlaylistIDs, playlistID)
+
+		fmt.Printf("[autoSync] user %d completed: %d/%d playlists synced\n", sysUser.ID, userSynced, userTotal)
+		totalSynced += userSynced
+		totalPlaylists += userTotal
 	}
 
-	// 等待所有触发的歌单任务完成（扫描→下载→补全）
-	triggeredCount := len(triggeredPlaylistIDs)
-	if triggeredCount > 0 {
-		fmt.Printf("[autoSync] waiting for %d playlist tasks to complete...\n", triggeredCount)
-		// 先设置初始进度
-		e.taskService.UpdateTaskProgress(syncTask.ID, 0, triggeredCount)
-		e.waitPlaylistTasksComplete(ctx, triggeredPlaylistIDs, syncTask.ID, triggeredCount)
-	} else {
-		e.taskService.UpdateTaskProgress(syncTask.ID, 0, 0)
-		e.taskService.CompleteTask(syncTask.ID)
-	}
-
-	fmt.Printf("[autoSync] completed: %d/%d playlists synced\n", syncedPlaylists, totalPlaylists)
+	fmt.Printf("[autoSync] all users completed: %d/%d playlists synced\n", totalSynced, totalPlaylists)
 }
 
 // waitPlaylistTasksComplete 等待所有歌单任务完成（扫描→下载→补全）
@@ -2005,6 +2244,14 @@ func getSyncInterval(intervalKey, unitKey string, defaultHours int) time.Duratio
 		return time.Duration(hours) * 24 * time.Hour
 	}
 	return time.Duration(hours) * time.Hour
+}
+
+// formatSongFilename 统一格式化文件名，严格遵循设置页 song_format 配置
+func formatSongFilename(songFormat, songName, artist, album string) string {
+	formatted := strings.ReplaceAll(songFormat, "{songName}", songName)
+	formatted = strings.ReplaceAll(formatted, "{artist}", artist)
+	formatted = strings.ReplaceAll(formatted, "{album}", album)
+	return sanitizeFilename(formatted)
 }
 
 // sanitizeFilename 清理文件名中的特殊字符，防止乱码和路径注入

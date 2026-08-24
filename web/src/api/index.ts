@@ -1,4 +1,8 @@
 import axios from 'axios'
+  },
+  verifyMetadataAll() {
+    return api.post("/download/verify-metadata-all")
+  }
 
 const api = axios.create({
   baseURL: '/api',
