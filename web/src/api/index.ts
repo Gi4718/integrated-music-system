@@ -1,8 +1,4 @@
 import axios from 'axios'
-  },
-  verifyMetadataAll() {
-    return api.post("/download/verify-metadata-all")
-  }
 
 const api = axios.create({
   baseURL: '/api',
@@ -105,6 +101,9 @@ export const downloadAPI = {
   },
   verifyMetadata(playlistId: number) {
     return api.post('/download/verify-metadata', { playlist_id: playlistId })
+  },
+  verifyMetadataAll() {
+    return api.post("/download/verify-metadata-all")
   }
 }
 

@@ -211,7 +211,6 @@ func SetupRouter(cfg *config.Config) *gin.Engine {
 				download.POST("/song", downloadSong)
 				download.POST("/playlist", downloadPlaylist)
 				download.POST("/verify-metadata", verifyMetadata)
-                                download.POST("/verify-metadata-all", verifyMetadataAll)
 				download.GET("/history", getDownloadHistory)
 				download.GET("/progress", getDownloadProgress)
 			}

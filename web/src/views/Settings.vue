@@ -499,7 +499,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
-import { settingsAPI } from '../api'
+import { settingsAPI, playlistAPI } from '../api'
 import { ElMessage } from 'element-plus'
 
 const activeTip = ref('')
@@ -996,39 +996,7 @@ const saveDownloadSettings = async () => {
   }
 }
 
-
-const saveSyncSettings = async () => {
-  savingSync.value = true
-  syncSavedTip.value = false
-  try {
-    const data = {
-      auto_sync: settings.value.autoSync.toString(),
-      sync_interval: settings.value.syncInterval.toString(),
-      sync_unit: settings.value.syncUnit,
-      sync_mode: settings.value.syncMode,
-      sync_weekdays: JSON.stringify(settings.value.syncWeekdays),
-      sync_time: settings.value.syncTime,
-      delete_removed: settings.value.deleteRemoved.toString(),
-      playlist_format: settings.value.playlistFormat,
-      quality: settings.value.quality,
-      storage_type: settings.value.storageType,
-      scan_before_download: settings.value.scanBeforeDownload.toString(),
-      resume_downloads: settings.value.resumeDownloads.toString(),
-      auto_data_complete: settings.value.autoDataComplete.toString(),
-      data_complete_cover: settings.value.dataCompleteCover.toString(),
-      data_complete_lyrics: settings.value.dataCompleteLyrics.toString(),
-      data_complete_artist: settings.value.dataCompleteArtist.toString()
-    }
-    await settingsAPI.updateSettings(data)
-    syncSavedTip.value = true
-    await loadSettings()
-    setTimeout(() => { syncSavedTip.value = false }, 2000)
-  } catch {
-    ElMessage.error('保存失败')
-  } finally {
-    savingSync.value = false
-  }
-}
+// 保存歌单同步配置
 
 // 保存 SSL 配置
 const saveSSLSettings = async () => {
