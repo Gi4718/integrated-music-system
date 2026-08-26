@@ -303,6 +303,7 @@ func (e *Engine) recoverIncompleteTasks(ctx context.Context) {
 				TotalSize:      d.TotalSize,
 				DownloadedSize: d.DownloadedSize,
 				TaskServiceID:  taskServiceID,
+				SystemUserID:   d.SystemUserID,
 			}
 			e.mu.Lock()
 			task.ID = len(e.tasks) + 1
