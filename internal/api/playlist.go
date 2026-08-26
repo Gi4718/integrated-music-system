@@ -179,8 +179,13 @@ func getPlaylistDetail(c *gin.Context) {
 		}
 		if trackIDs, ok := playlist["trackIds"].([]interface{}); ok {
 			for _, id := range trackIDs {
-				if songID, ok := id.(float64); ok {
-					allTrackIDs = append(allTrackIDs, int(songID))
+				switch v := id.(type) {
+				case float64:
+					allTrackIDs = append(allTrackIDs, int(v))
+				case map[string]interface{}:
+					if songID, ok := v["id"].(float64); ok {
+						allTrackIDs = append(allTrackIDs, int(songID))
+					}
 				}
 			}
 		}
@@ -201,7 +206,7 @@ func getPlaylistDetail(c *gin.Context) {
 		end = total
 	}
 
-	var tracks []map[string]interface{}
+	tracks := make([]map[string]interface{}, 0)
 	if len(allTrackIDs) > 0 && start < end {
 		pageIDs := allTrackIDs[start:end]
 		// 分批获取歌曲详情（每批最多100首）
