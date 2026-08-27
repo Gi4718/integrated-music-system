@@ -11,7 +11,12 @@ import (
 )
 
 func getRecommendSongs(c *gin.Context) {
-	cookie, _ := db.GetCookie()
+	systemUserID := getSystemUserID(c)
+	cookie, _ := db.GetCookieForSystem(systemUserID)
+	if cookie == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "账号未登录或Cookie已过期"})
+		return
+	}
 	netease := service.NewNeteaseService("http://127.0.0.1:3000")
 
 	body, err := netease.GetRecommendSongs(cookie)
@@ -50,7 +55,12 @@ func getRecommendSongs(c *gin.Context) {
 }
 
 func getRecommendPlaylists(c *gin.Context) {
-	cookie, _ := db.GetCookie()
+	systemUserID := getSystemUserID(c)
+	cookie, _ := db.GetCookieForSystem(systemUserID)
+	if cookie == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "账号未登录或Cookie已过期"})
+		return
+	}
 	netease := service.NewNeteaseService("http://127.0.0.1:3000")
 
 	body, err := netease.GetRecommendPlaylists(cookie)

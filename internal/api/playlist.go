@@ -103,7 +103,7 @@ func addSongToPlaylist(c *gin.Context) {
 		return
 	}
 
-	cookie, _ := db.GetCookie()
+	cookie, _ := db.GetCookieForSystem(systemUserID)
 	netease := service.NewNeteaseService("http://127.0.0.1:3000")
 	body, err := netease.AddSongToPlaylist(req.PlaylistID, req.SongID, cookie)
 	if err != nil {
@@ -154,7 +154,8 @@ func getPlaylistDetail(c *gin.Context) {
 		}
 	}
 
-	cookie, _ := db.GetCookie()
+	systemUserID := getSystemUserID(c)
+	cookie, _ := db.GetCookieForSystem(systemUserID)
 	netease := service.NewNeteaseService("http://127.0.0.1:3000")
 
 	// 获取歌单详情（含 trackIds）
@@ -313,8 +314,9 @@ func subscribePlaylist(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return
 	}
+	systemUserID := getSystemUserID(c)
 
-	cookie, _ := db.GetCookie()
+	cookie, _ := db.GetCookieForSystem(systemUserID)
 	netease := service.NewNeteaseService("http://127.0.0.1:3000")
 	body, err := netease.SubscribePlaylist(req.PlaylistID, cookie)
 	if err != nil {
