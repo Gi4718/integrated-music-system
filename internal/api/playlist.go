@@ -187,53 +187,31 @@ func getPlaylistDetail(c *gin.Context) {
 		}
 	}
 
-	// 使用 /playlist/track/all 分页获取全部歌曲（突破1000首限制）
+	// 使用 /playlist/track/all 直接获取当前页的歌曲（突破1000首限制）
+	// 每次只获取当前页需要的数据，不加载全部
 	tracks := make([]map[string]interface{}, 0)
-	fetchOffset := 0
-	fetchLimit := 500
-	for {
-		songBody, err := netease.GetPlaylistTracksAll(playlistID, fetchOffset, fetchLimit, cookie)
-		if err != nil {
-			break
-		}
+	songBody, err := netease.GetPlaylistTracksAll(playlistID, offset, limit, cookie)
+	if err == nil {
 		var songResult map[string]interface{}
-		if err := json.Unmarshal(songBody, &songResult); err != nil {
-			break
-		}
-		songs, _ := songResult["songs"].([]interface{})
-		if len(songs) == 0 {
-			break
-		}
-		for _, s := range songs {
-			if m, ok := s.(map[string]interface{}); ok {
-				tracks = append(tracks, parseTrack(m))
+		if err := json.Unmarshal(songBody, &songResult); err == nil {
+			// 更新total为API返回的准确值
+			if s, ok := songResult["total"].(float64); ok && int(s) > 0 {
+				total = int(s)
+			}
+			if songs, ok := songResult["songs"].([]interface{}); ok {
+				for _, s := range songs {
+					if m, ok := s.(map[string]interface{}); ok {
+						tracks = append(tracks, parseTrack(m))
+					}
+				}
 			}
 		}
-		// 更新total为实际获取到的数量（如果API返回了更准确的值）
-		if s, ok := songResult["total"].(float64); ok && int(s) > 0 {
-			total = int(s)
-		}
-		fetchOffset += fetchLimit
-		if fetchOffset >= total || len(songs) < fetchLimit {
-			break
-		}
 	}
-
-	// 分页截取结果给前端
-	start := offset
-	if start > len(tracks) {
-		start = len(tracks)
-	}
-	end := start + limit
-	if end > len(tracks) {
-		end = len(tracks)
-	}
-	pageTracks := tracks[start:end]
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":  true,
 		"playlist": playlistMeta,
-		"tracks":   pageTracks,
+		"tracks":   tracks,
 		"total":    total,
 		"offset":   offset,
 		"limit":    limit,
