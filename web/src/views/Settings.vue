@@ -29,6 +29,14 @@
         </div>
       </div>
 
+      <div class="setting-row">
+        <label class="setting-label">硬盘类型</label>
+        <div class="quality-btns">
+          <button :class="{ active: settings.storageType === 'ssd' }" @click="settings.storageType = 'ssd'">SSD</button>
+          <button :class="{ active: settings.storageType === 'hdd' }" @click="settings.storageType = 'hdd'">HDD</button>
+        </div>
+      </div>
+
       <div class="section-save-bar">
         <button class="save-btn" @click="saveDownloadSettings" :disabled="savingDownload">
           {{ savingDownload ? '保存中...' : '保存' }}
@@ -172,14 +180,6 @@
         <div class="quality-btns">
           <button :class="{ active: settings.quality === 'high' }" @click="settings.quality = 'high'">高质量</button>
           <button :class="{ active: settings.quality === 'lossless' }" @click="settings.quality = 'lossless'">无损</button>
-        </div>
-      </div>
-
-      <div class="setting-row">
-        <label class="setting-label">硬盘类型</label>
-        <div class="quality-btns">
-          <button :class="{ active: settings.storageType === 'ssd' }" @click="settings.storageType = 'ssd'">SSD</button>
-          <button :class="{ active: settings.storageType === 'hdd' }" @click="settings.storageType = 'hdd'">HDD</button>
         </div>
       </div>
 
@@ -941,7 +941,8 @@ const saveDownloadSettings = async () => {
   try {
     const data = {
       download_path: settings.value.downloadPath,
-      song_format: settings.value.songFormat
+      song_format: settings.value.songFormat,
+      storage_type: settings.value.storageType
     }
     await settingsAPI.updateSettings(data)
     downloadSavedTip.value = true
@@ -969,7 +970,6 @@ const saveSyncSettings = async () => {
       delete_removed: settings.value.deleteRemoved.toString(),
       playlist_format: settings.value.playlistFormat,
       quality: settings.value.quality,
-      storage_type: settings.value.storageType,
       resume_downloads: settings.value.resumeDownloads.toString(),
       auto_data_complete: settings.value.autoDataComplete.toString(),
       data_complete_cover: settings.value.dataCompleteCover.toString(),
