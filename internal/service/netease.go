@@ -379,6 +379,33 @@ func (s *NeteaseService) GetPlaylistDetail(playlistID int, cookie string) ([]byt
 	return body, nil
 }
 
+// GetPlaylistTracksAll 获取歌单全部歌曲（突破1000首限制）
+func (s *NeteaseService) GetPlaylistTracksAll(playlistID, offset, limit int, cookie string) ([]byte, error) {
+	reqURL := addDeviceParams(fmt.Sprintf("%s/playlist/track/all?id=%d&offset=%d&limit=%d", s.baseURL, playlistID, offset, limit))
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("创建请求失败: %w", err)
+	}
+	setDeviceHeaders(req)
+
+	if cookie != "" {
+		req.Header.Set("Cookie", cookie)
+	}
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("获取歌单歌曲失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("读取响应失败: %w", err)
+	}
+
+	return body, nil
+}
+
 // AddSongToPlaylist 添加歌曲到歌单 (op: add/del)
 func (s *NeteaseService) AddSongToPlaylist(playlistID int, songID int, cookie string) ([]byte, error) {
 	reqURL := addDeviceParams(fmt.Sprintf("%s/playlist/tracks?op=add&pid=%d&tracks=%d", s.baseURL, playlistID, songID))

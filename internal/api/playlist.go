@@ -165,7 +165,7 @@ func getPlaylistDetail(c *gin.Context) {
 	}
 	netease := service.NewNeteaseService("http://127.0.0.1:3000")
 
-	// 获取歌单详情（含 trackIds）
+	// 获取歌单详情（用于歌单元数据）
 	body, err := netease.GetPlaylistDetail(playlistID, cookie)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -178,78 +178,62 @@ func getPlaylistDetail(c *gin.Context) {
 		return
 	}
 
-	// 提取 trackIds
-	var allTrackIDs []int
+	// 获取歌单元数据
+	playlistMeta := result["playlist"]
 	total := 0
-	if playlist, ok := result["playlist"].(map[string]interface{}); ok {
+	if playlist, ok := playlistMeta.(map[string]interface{}); ok {
 		if tc, ok := playlist["trackCount"].(float64); ok {
 			total = int(tc)
 		}
-		if trackIDs, ok := playlist["trackIds"].([]interface{}); ok {
-			for _, id := range trackIDs {
-				switch v := id.(type) {
-				case float64:
-					allTrackIDs = append(allTrackIDs, int(v))
-				case map[string]interface{}:
-					if songID, ok := v["id"].(float64); ok {
-						allTrackIDs = append(allTrackIDs, int(songID))
-					}
-				}
+	}
+
+	// 使用 /playlist/track/all 分页获取全部歌曲（突破1000首限制）
+	tracks := make([]map[string]interface{}, 0)
+	fetchOffset := 0
+	fetchLimit := 500
+	for {
+		songBody, err := netease.GetPlaylistTracksAll(playlistID, fetchOffset, fetchLimit, cookie)
+		if err != nil {
+			break
+		}
+		var songResult map[string]interface{}
+		if err := json.Unmarshal(songBody, &songResult); err != nil {
+			break
+		}
+		songs, _ := songResult["songs"].([]interface{})
+		if len(songs) == 0 {
+			break
+		}
+		for _, s := range songs {
+			if m, ok := s.(map[string]interface{}); ok {
+				tracks = append(tracks, parseTrack(m))
 			}
+		}
+		// 更新total为实际获取到的数量（如果API返回了更准确的值）
+		if s, ok := songResult["total"].(float64); ok && int(s) > 0 {
+			total = int(s)
+		}
+		fetchOffset += fetchLimit
+		if fetchOffset >= total || len(songs) < fetchLimit {
+			break
 		}
 	}
 
-	// 用 trackIds 的实际数量作为 total（比 trackCount 更准确）
-	if len(allTrackIDs) > 0 {
-		total = len(allTrackIDs)
-	}
-
-	// 分页截取 trackIds
+	// 分页截取结果给前端
 	start := offset
-	if start > total {
-		start = total
+	if start > len(tracks) {
+		start = len(tracks)
 	}
 	end := start + limit
-	if end > total {
-		end = total
+	if end > len(tracks) {
+		end = len(tracks)
 	}
-
-	tracks := make([]map[string]interface{}, 0)
-	if len(allTrackIDs) > 0 && start < end {
-		pageIDs := allTrackIDs[start:end]
-		// 分批获取歌曲详情（每批最多100首）
-		for i := 0; i < len(pageIDs); i += 100 {
-			batchEnd := i + 100
-			if batchEnd > len(pageIDs) {
-				batchEnd = len(pageIDs)
-			}
-			batchIDs := pageIDs[i:batchEnd]
-			idStrs := make([]string, len(batchIDs))
-			for j, id := range batchIDs {
-				idStrs[j] = strconv.Itoa(id)
-			}
-			idsParam := strings.Join(idStrs, ",")
-
-			songBody, err := netease.GetSongDetailBatch(idsParam)
-			if err != nil {
-				continue
-			}
-			var songResult map[string]interface{}
-			if err := json.Unmarshal(songBody, &songResult); err != nil {
-				continue
-			}
-			if songs, ok := songResult["songs"].([]interface{}); ok {
-				for _, s := range songs {
-					tracks = append(tracks, parseTrack(s.(map[string]interface{})))
-				}
-			}
-		}
-	}
+	pageTracks := tracks[start:end]
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":  true,
-		"playlist": result["playlist"],
-		"tracks":   tracks,
+		"playlist": playlistMeta,
+		"tracks":   pageTracks,
 		"total":    total,
 		"offset":   offset,
 		"limit":    limit,
