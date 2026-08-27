@@ -20,6 +20,24 @@ import (
 	"endfield-music/internal/util"
 )
 
+// StorageType 存储类型
+type StorageType string
+
+const (
+	StorageHDD StorageType = "hdd"
+	StorageSSD StorageType = "ssd"
+	StorageAuto StorageType = "auto" // 自动检测
+)
+
+// StorageConfig 存储配置
+type StorageConfig struct {
+	Type                 StorageType
+	ScanConcurrency      int // 扫盘并发数
+	DownloadConcurrency  int // 下载并发数
+	BufferSize           int // 下载缓冲区大小（字节）
+	FlushInterval        int // 数据刷盘间隔（字节）
+}
+
 // Engine 下载引擎
 type Engine struct {
 	netease           *service.NeteaseService
@@ -32,6 +50,7 @@ type Engine struct {
 	mu                sync.RWMutex
 	tasks             map[int]*DownloadTask
 	playlistPhases    map[int]*PlaylistPhase
+	storageConfig     *StorageConfig // 存储配置
 }
 
 // DownloadTask 下载任务
@@ -72,7 +91,7 @@ type PlaylistPhase struct {
 
 // NewEngine 创建下载引擎
 func NewEngine(netease *service.NeteaseService, taskService *service.TaskService, concurrency int) *Engine {
-	return &Engine{
+	engine := &Engine{
 		netease:           netease,
 		metadataCompleter: service.NewMetadataCompleter(netease),
 		taskService:       taskService,
@@ -83,6 +102,19 @@ func NewEngine(netease *service.NeteaseService, taskService *service.TaskService
 		tasks:             make(map[int]*DownloadTask),
 		playlistPhases:    make(map[int]*PlaylistPhase),
 	}
+
+	// 初始化存储配置
+	engine.storageConfig = engine.detectStorageConfig()
+	// 使用存储配置的并发数覆盖默认值
+	engine.worker = engine.storageConfig.DownloadConcurrency
+	fmt.Printf("[engine] storage config: type=%s, scanConcurrency=%d, downloadConcurrency=%d, bufferSize=%dKB, flushInterval=%dKB\n",
+		engine.storageConfig.Type,
+		engine.storageConfig.ScanConcurrency,
+		engine.storageConfig.DownloadConcurrency,
+		engine.storageConfig.BufferSize/1024,
+		engine.storageConfig.FlushInterval/1024)
+
+	return engine
 }
 
 // Start 启动工作协程
@@ -2018,6 +2050,49 @@ func (e *Engine) autoCompleteMetadata() {
 			e.metadataQueue <- task
 		}
 	}
+}
+
+// detectStorageConfig 检测存储配置
+func (e *Engine) detectStorageConfig() *StorageConfig {
+	config := &StorageConfig{}
+
+	// 从数据库读取存储类型设置，默认为SSD
+	storageType, _ := db.GetSetting("storage_type")
+	if storageType == "" {
+		storageType = "ssd" // 默认SSD配置
+	}
+
+	switch StorageType(storageType) {
+	case StorageHDD:
+		config.Type = StorageHDD
+	case StorageSSD:
+		config.Type = StorageSSD
+	default:
+		config.Type = StorageSSD // 默认SSD
+	}
+
+	// 根据存储类型设置并发和缓冲区参数
+	switch config.Type {
+	case StorageHDD:
+		// HDD: 减少并发避免磁头抖动，大缓冲区减少IO次数
+		config.ScanConcurrency = 2
+		config.DownloadConcurrency = 2
+		config.BufferSize = 256 * 1024       // 256KB
+		config.FlushInterval = 1024 * 1024   // 1MB
+	case StorageSSD:
+		// SSD: 增加并发，适中缓冲区
+		config.ScanConcurrency = 4
+		config.DownloadConcurrency = 4
+		config.BufferSize = 64 * 1024        // 64KB
+		config.FlushInterval = 512 * 1024    // 512KB
+	default:
+		config.ScanConcurrency = 4
+		config.DownloadConcurrency = 4
+		config.BufferSize = 64 * 1024
+		config.FlushInterval = 512 * 1024
+	}
+
+	return config
 }
 
 func getSettingBool(key string, defaultVal bool) bool {

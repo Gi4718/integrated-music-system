@@ -175,6 +175,14 @@
         </div>
       </div>
 
+      <div class="setting-row">
+        <label class="setting-label">硬盘类型</label>
+        <div class="quality-btns">
+          <button :class="{ active: settings.storageType === 'ssd' }" @click="settings.storageType = 'ssd'">SSD</button>
+          <button :class="{ active: settings.storageType === 'hdd' }" @click="settings.storageType = 'hdd'">HDD</button>
+        </div>
+      </div>
+
       <!-- 数据补全配置 -->
       <div class="setting-row">
         <div class="setting-label-col">
@@ -506,6 +514,7 @@ const settings = ref({
   deleteRemoved: false,
   playlistFormat: '{playlistName}/{songName} - {artist}',
   quality: 'high' as 'high' | 'lossless',
+  storageType: 'ssd' as 'ssd' | 'hdd',
   resumeDownloads: true,
   autoDataComplete: false,
   dataCompleteInterval: 24,
@@ -840,6 +849,7 @@ const loadSettings = async () => {
       settings.value.deleteRemoved = s.delete_removed === 'true'
       settings.value.playlistFormat = s.playlist_format || '{playlistName}/{songName} - {artist}'
       settings.value.quality = s.quality || 'high'
+      settings.value.storageType = s.storage_type || 'ssd'
       settings.value.resumeDownloads = s.resume_downloads !== 'false'
       settings.value.autoDataComplete = s.auto_data_complete === 'true'
       settings.value.dataCompleteInterval = parseInt(s.data_complete_interval) || 24
@@ -959,6 +969,7 @@ const saveSyncSettings = async () => {
       delete_removed: settings.value.deleteRemoved.toString(),
       playlist_format: settings.value.playlistFormat,
       quality: settings.value.quality,
+      storage_type: settings.value.storageType,
       resume_downloads: settings.value.resumeDownloads.toString(),
       auto_data_complete: settings.value.autoDataComplete.toString(),
       data_complete_cover: settings.value.dataCompleteCover.toString(),
