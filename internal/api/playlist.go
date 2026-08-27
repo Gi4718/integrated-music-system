@@ -102,8 +102,11 @@ func addSongToPlaylist(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
 		return
 	}
-
-	cookie, _ := db.GetCookie()
+	cookie, _ := db.GetCookieForSystem(systemUserID)
+	if cookie == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "账号未登录或Cookie已过期"})
+		return
+	}
 	netease := service.NewNeteaseService("http://127.0.0.1:3000")
 	body, err := netease.AddSongToPlaylist(req.PlaylistID, req.SongID, cookie)
 	if err != nil {
@@ -154,7 +157,12 @@ func getPlaylistDetail(c *gin.Context) {
 		}
 	}
 
-	cookie, _ := db.GetCookie()
+	systemUserID := getSystemUserID(c)
+	cookie, _ := db.GetCookieForSystem(systemUserID)
+	if cookie == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "账号未登录或Cookie已过期"})
+		return
+	}
 	netease := service.NewNeteaseService("http://127.0.0.1:3000")
 
 	// 获取歌单详情（含 trackIds）
@@ -179,8 +187,13 @@ func getPlaylistDetail(c *gin.Context) {
 		}
 		if trackIDs, ok := playlist["trackIds"].([]interface{}); ok {
 			for _, id := range trackIDs {
-				if songID, ok := id.(float64); ok {
-					allTrackIDs = append(allTrackIDs, int(songID))
+				switch v := id.(type) {
+				case float64:
+					allTrackIDs = append(allTrackIDs, int(v))
+				case map[string]interface{}:
+					if songID, ok := v["id"].(float64); ok {
+						allTrackIDs = append(allTrackIDs, int(songID))
+					}
 				}
 			}
 		}
@@ -201,7 +214,7 @@ func getPlaylistDetail(c *gin.Context) {
 		end = total
 	}
 
-	var tracks []map[string]interface{}
+	tracks := make([]map[string]interface{}, 0)
 	if len(allTrackIDs) > 0 && start < end {
 		pageIDs := allTrackIDs[start:end]
 		// 分批获取歌曲详情（每批最多100首）
@@ -309,7 +322,12 @@ func subscribePlaylist(c *gin.Context) {
 		return
 	}
 
-	cookie, _ := db.GetCookie()
+	systemUserID := getSystemUserID(c)
+	cookie, _ := db.GetCookieForSystem(systemUserID)
+	if cookie == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "账号未登录或Cookie已过期"})
+		return
+	}
 	netease := service.NewNeteaseService("http://127.0.0.1:3000")
 	body, err := netease.SubscribePlaylist(req.PlaylistID, cookie)
 	if err != nil {

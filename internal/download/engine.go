@@ -156,6 +156,18 @@ func (e *Engine) recoverIncompleteTasks(ctx context.Context) {
 
 	for _, d := range pending {
 		if d.Phase == "download" && (d.Status == "pending" || d.Status == "downloading") {
+			// 检查断点续传设置，如果禁用则跳过恢复（重新下载）
+			resumeEnabled := true
+			if val, err := db.GetSettingByUser(d.SystemUserID, "resume_downloads"); err == nil && val != "" {
+				resumeEnabled = val == "true"
+			}
+			if !resumeEnabled {
+				db.UpdateDownloadStatus(d.SongID, "pending")
+				db.UpdateDownloadPhase(d.SongID, "download")
+				fmt.Printf("[recover] resume disabled, skipping recovery for %s\n", d.SongName)
+				continue
+			}
+
 			// 重新计算文件路径（DB中FilePath可能为空，因为只在下载完成后才写入）
 			ext := ".mp3"
 			if d.Quality == "lossless" {
@@ -177,9 +189,10 @@ func (e *Engine) recoverIncompleteTasks(ctx context.Context) {
 				}
 			}
 			
-			baseDir := filepath.Join("/music", username)
+			downloadBase := getDownloadBaseDir(d.SystemUserID)
+			baseDir := filepath.Join(downloadBase, username)
 			if d.SubDir != "" {
-				baseDir = filepath.Join("/music", username, d.SubDir)
+				baseDir = filepath.Join(downloadBase, username, d.SubDir)
 			}
 			computedPath := filepath.Join(baseDir, filename)
 
@@ -226,6 +239,7 @@ func (e *Engine) recoverIncompleteTasks(ctx context.Context) {
 				TotalSize:      d.TotalSize,
 				DownloadedSize: d.DownloadedSize,
 				TaskServiceID:  taskServiceID,
+				SystemUserID:   d.SystemUserID,
 			}
 			e.mu.Lock()
 			task.ID = len(e.tasks) + 1
@@ -652,9 +666,10 @@ func (e *Engine) asyncScanAndDownload(playlistID int, playlistName string, track
 		}
 		
 		// 复制文件到目标目录
-		targetDir := filepath.Join("/music", username)
+		downloadBase := getDownloadBaseDir(systemUserID)
+		targetDir := filepath.Join(downloadBase, username)
 		if playlistName != "" {
-			targetDir = filepath.Join("/music", username, playlistName)
+			targetDir = filepath.Join(downloadBase, username, playlistName)
 		}
 		os.MkdirAll(targetDir, 0755)
 		
@@ -776,15 +791,16 @@ func (e *Engine) asyncScanAndDownload(playlistID int, playlistName string, track
 	for _, info := range remainingInfos {
 		// 直接创建任务，不再调用AddTaskWithSubDir（避免重复GetSongDetail）
 		task := &DownloadTask{
-			SongID:     info.SongID,
-			SongName:   info.Name,
-			Artist:     info.Artist,
-			Album:      info.Album,
-			Quality:    quality,
-			SubDir:     playlistName,
-			PlaylistID: playlistID,
-			Status:     "pending",
-			CreatedAt:  time.Now(),
+			SongID:       info.SongID,
+			SongName:     info.Name,
+			Artist:       info.Artist,
+			Album:        info.Album,
+			Quality:      quality,
+			SubDir:       playlistName,
+			PlaylistID:   playlistID,
+			Status:       "pending",
+			CreatedAt:    time.Now(),
+			SystemUserID: systemUserID,
 		}
 		
 		e.mu.Lock()
@@ -864,9 +880,10 @@ func (e *Engine) scanPlaylistSongs(ctx context.Context, trackIDs []int, quality,
 	}
 	
 	// 构建目标目录（用户隔离）
-	targetDir := filepath.Join("/music", username)
+	downloadBase := getDownloadBaseDir(systemUserID)
+	targetDir := filepath.Join(downloadBase, username)
 	if playlistName != "" {
-		targetDir = filepath.Join("/music", username, playlistName)
+		targetDir = filepath.Join(downloadBase, username, playlistName)
 	}
 	
 	// 扫描每首歌曲
@@ -1130,9 +1147,10 @@ func (e *Engine) executeTask(ctx context.Context, task *DownloadTask) {
 		}
 	}
 	
-	baseDir := filepath.Join("/music", username)
+	downloadBase := getDownloadBaseDir(task.SystemUserID)
+	baseDir := filepath.Join(downloadBase, username)
 	if task.SubDir != "" {
-		baseDir = filepath.Join("/music", username, task.SubDir)
+		baseDir = filepath.Join(downloadBase, username, task.SubDir)
 	}
 	// 确保目录存在（无论是单曲下载还是歌单下载）
 	if err := os.MkdirAll(baseDir, 0755); err != nil {
@@ -1341,9 +1359,9 @@ func (e *Engine) executeMetadataTask(ctx context.Context, task *DownloadTask) {
 		Album:  task.Album,
 	}
 
-	coverEnabled := getSettingBool("data_complete_cover", true)
-	lyricsEnabled := getSettingBool("data_complete_lyrics", true)
-	artistEnabled := getSettingBool("data_complete_artist", true)
+	coverEnabled := getSettingBoolByUser(task.SystemUserID, "data_complete_cover", true)
+	lyricsEnabled := getSettingBoolByUser(task.SystemUserID, "data_complete_lyrics", true)
+	artistEnabled := getSettingBoolByUser(task.SystemUserID, "data_complete_artist", true)
 
 	// 从 DB 获取已完成的步骤（断点续传）
 	history, _ := db.GetDownloadBySongID(task.SongID)
@@ -1504,7 +1522,17 @@ func (e *Engine) checkPlaylistPhaseComplete(playlistID int) {
 		}
 
 		// 检查是否需要数据补全（跟随同步运行，非独立定时）
-		autoComplete := getSettingBool("auto_data_complete", true)
+		// 从任务中获取 systemUserID
+		var autoCompleteSystemUserID int
+		e.mu.RLock()
+		for _, t := range e.tasks {
+			if t.PlaylistID == playlistID && t.SystemUserID > 0 {
+				autoCompleteSystemUserID = t.SystemUserID
+				break
+			}
+		}
+		e.mu.RUnlock()
+		autoComplete := getSettingBoolByUser(autoCompleteSystemUserID, "auto_data_complete", true)
 		if autoComplete && downloadDone > 0 && phase.MetadataTaskID != "" {
 			// 使用预创建的 metadataTask，更新 Total 为实际下载成功数
 			e.taskService.UpdateTaskProgress(phase.MetadataTaskID, 0, downloadDone)
@@ -1983,11 +2011,31 @@ func (e *Engine) autoCompleteMetadata() {
 }
 
 func getSettingBool(key string, defaultVal bool) bool {
-	val, _ := db.GetSetting(key)
+	return getSettingBoolByUser(0, key, defaultVal)
+}
+
+func getSettingBoolByUser(systemUserID int, key string, defaultVal bool) bool {
+	var val string
+	if systemUserID > 0 {
+		val, _ = db.GetSettingByUser(systemUserID, key)
+	} else {
+		val, _ = db.GetSetting(key)
+	}
 	if val == "" {
 		return defaultVal
 	}
 	return val == "true"
+}
+
+// getDownloadBaseDir 获取用户的基础下载目录
+// 优先使用用户设置的 download_path，否则 fallback 到 /music
+func getDownloadBaseDir(systemUserID int) string {
+	if systemUserID > 0 {
+		if val, err := db.GetSettingByUser(systemUserID, "download_path"); err == nil && val != "" {
+			return val
+		}
+	}
+	return "/music"
 }
 
 func getSyncInterval(intervalKey, unitKey string, defaultHours int) time.Duration {
