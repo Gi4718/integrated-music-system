@@ -272,6 +272,16 @@ func (e *Engine) recoverIncompleteTasks(ctx context.Context) {
 			e.downloadQueue <- task
 			fmt.Printf("[recover] queued download task: %s (songID=%d)\n", d.SongName, d.SongID)
 		} else if d.Phase == "metadata" && !d.MetadataCompleted {
+			// 检查断点续传设置，如果禁用则跳过元数据恢复
+			resumeEnabled := true
+			if val, err := db.GetSettingByUser(d.SystemUserID, "resume_downloads"); err == nil && val != "" {
+				resumeEnabled = val == "true"
+			}
+			if !resumeEnabled {
+				fmt.Printf("[recover] resume disabled, skipping metadata recovery for %s\n", d.SongName)
+				continue
+			}
+
 			task := &DownloadTask{
 				SongID:     d.SongID,
 				SongName:   d.SongName,
