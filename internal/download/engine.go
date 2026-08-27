@@ -254,9 +254,9 @@ func (e *Engine) recoverIncompleteTasks(ctx context.Context) {
 				}
 			}
 			
-			baseDir := filepath.Join("/music", username)
+			baseDir := filepath.Join(getDownloadBaseDir(d.SystemUserID), username)
 			if d.SubDir != "" {
-				baseDir = filepath.Join("/music", username, d.SubDir)
+				baseDir = filepath.Join(getDownloadBaseDir(d.SystemUserID), username, d.SubDir)
 			}
 			computedPath := filepath.Join(baseDir, filename)
 
@@ -748,9 +748,9 @@ func (e *Engine) asyncScanAndDownload(playlistID int, playlistName string, track
 		}
 		
 		// 复制文件到目标目录
-		targetDir := filepath.Join("/music", username)
+		targetDir := filepath.Join(getDownloadBaseDir(systemUserID), username)
 		if playlistName != "" {
-			targetDir = filepath.Join("/music", username, playlistName)
+			targetDir = filepath.Join(getDownloadBaseDir(systemUserID), username, playlistName)
 		}
 		os.MkdirAll(targetDir, 0755)
 		
@@ -955,9 +955,9 @@ func (e *Engine) scanPlaylistSongs(ctx context.Context, trackIDs []int, quality,
 			username = sanitizeFilename(user.Username)
 		}
 	}
-	targetDir := filepath.Join("/music", username)
+	targetDir := filepath.Join(getDownloadBaseDir(systemUserID), username)
 	if playlistName != "" {
-		targetDir = filepath.Join("/music", username, playlistName)
+		targetDir = filepath.Join(getDownloadBaseDir(systemUserID), username, playlistName)
 	}
 
 	// 优化1: 批量预加载所有下载记录到内存
@@ -1298,9 +1298,9 @@ func (e *Engine) executeTask(ctx context.Context, task *DownloadTask) {
 		}
 	}
 	
-	baseDir := filepath.Join("/music", username)
+	baseDir := filepath.Join(getDownloadBaseDir(task.SystemUserID), username)
 	if task.SubDir != "" {
-		baseDir = filepath.Join("/music", username, task.SubDir)
+		baseDir = filepath.Join(getDownloadBaseDir(task.SystemUserID), username, task.SubDir)
 		if err := os.MkdirAll(baseDir, 0755); err != nil {
 			e.failTask(task, fmt.Sprintf("创建目录失败: %v", err))
 			e.checkPlaylistPhaseComplete(task.PlaylistID)
@@ -2272,6 +2272,17 @@ func getSettingBool(key string, defaultVal bool) bool {
 		return defaultVal
 	}
 	return val == "true"
+}
+
+// getDownloadBaseDir 获取用户的基础下载目录
+// 优先使用用户设置的 download_path，否则 fallback 到 /music
+func getDownloadBaseDir(systemUserID int) string {
+	if systemUserID > 0 {
+		if val, err := db.GetSettingByUser(systemUserID, "download_path"); err == nil && val != "" {
+			return val
+		}
+	}
+	return "/music"
 }
 
 func getSyncInterval(intervalKey, unitKey string, defaultHours int) time.Duration {
