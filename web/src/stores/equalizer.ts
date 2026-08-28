@@ -9,27 +9,27 @@ export interface EQBand {
 
 export interface EQPreset {
   name: string
-  bands: number[] // 8 gain values in dB
+  bands: number[] // 10 gain values in dB
 }
 
-// 8个频段
-export const EQ_FREQUENCIES = [60, 170, 310, 600, 1000, 3000, 6000, 14000]
-export const EQ_LABELS = ['60', '170', '310', '600', '1K', '3K', '6K', '14K']
+// 10个频段
+export const EQ_FREQUENCIES = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
+export const EQ_LABELS = ['31', '63', '125', '250', '500', '1k', '2k', '4k', '8k', '16k']
 export const EQ_MIN = -12
 export const EQ_MAX = 12
 
 // 内置预设
 export const BUILTIN_PRESETS: EQPreset[] = [
-  { name: '平坦', bands: [0, 0, 0, 0, 0, 0, 0, 0] },
-  { name: '低音增强', bands: [6, 5, 3, 1, 0, 0, 0, 0] },
-  { name: '高音增强', bands: [0, 0, 0, 0, 1, 3, 5, 6] },
-  { name: '摇滚', bands: [5, 3, -1, -3, 1, 3, 5, 6] },
-  { name: '流行', bands: [-1, 2, 4, 5, 3, 0, -1, -2] },
-  { name: '爵士', bands: [3, 2, 0, 2, -1, -1, 0, 2] },
-  { name: '古典', bands: [4, 3, 2, 1, -1, -1, 0, 2] },
-  { name: '电子', bands: [5, 4, 1, 0, -2, 2, 4, 5] },
-  { name: '人声', bands: [-2, -1, 2, 5, 5, 3, 1, -1] },
-  { name: '低音削减', bands: [-5, -3, -1, 0, 0, 0, 0, 0] },
+  { name: '平坦', bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+  { name: '低音增强', bands: [6, 5, 4, 2, 1, 0, 0, 0, 0, 0] },
+  { name: '高音增强', bands: [0, 0, 0, 0, 0, 1, 3, 5, 6, 6] },
+  { name: '摇滚', bands: [5, 4, 2, -1, -2, 1, 3, 5, 6, 6] },
+  { name: '流行', bands: [-1, 1, 3, 5, 4, 2, 0, -1, -2, -2] },
+  { name: '爵士', bands: [4, 3, 1, 2, -1, -1, 0, 1, 2, 3] },
+  { name: '古典', bands: [5, 4, 3, 2, 0, -1, -1, 0, 2, 3] },
+  { name: '电子', bands: [6, 5, 3, 1, -1, 0, 2, 4, 5, 5] },
+  { name: '人声', bands: [-3, -2, 0, 3, 5, 5, 3, 1, 0, -1] },
+  { name: '低音削减', bands: [-6, -4, -2, -1, 0, 0, 0, 0, 0, 0] },
 ]
 
 const STORAGE_KEY = 'equalizer_config'
@@ -67,7 +67,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     // 检查内置预设
     const builtin = BUILTIN_PRESETS.find(p => p.name === activePresetName.value)
     if (builtin) return [...builtin.bands]
-    return [0, 0, 0, 0, 0, 0, 0, 0]
+    return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
   }
 
   const initAudioContext = (audio: HTMLAudioElement) => {
@@ -155,7 +155,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   const addCustomSlot = (name: string): boolean => {
     if (customSlots.value.length >= MAX_CUSTOM) return false
     if (customSlots.value.some(s => s.name === name)) return false
-    customSlots.value.push({ name, bands: [0, 0, 0, 0, 0, 0, 0, 0] })
+    customSlots.value.push({ name, bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] })
     saveConfig(activePresetName.value, customSlots.value, enabled.value)
     return true
   }
