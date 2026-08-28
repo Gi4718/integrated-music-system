@@ -545,11 +545,7 @@ const onVolumeChange = (event: Event) => {
 .eq-dialog {
   background: var(--card-bg);
   border-radius: 12px;
-  width: 400px;
-  max-height: 85vh;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
+  width: 480px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 }
 

@@ -1,6 +1,7 @@
 <template>
   <div class="eq-panel">
-    <div class="eq-header">
+    <!-- 顶部：标题 + 开关 -->
+    <div class="eq-top">
       <span class="eq-title">均衡器</span>
       <label class="eq-toggle">
         <input type="checkbox" :checked="eq.enabled" @change="eq.setEnabled(!eq.enabled)" />
@@ -8,63 +9,37 @@
       </label>
     </div>
 
-    <!-- 预设按钮 -->
-    <div class="eq-section">
-      <div class="eq-section-label">预设</div>
-      <div class="eq-presets">
-        <button
-          v-for="preset in BUILTIN_PRESETS"
-          :key="preset.name"
-          class="eq-preset-btn"
-          :class="{ active: eq.activePresetName === preset.name }"
-          @click="eq.selectPreset(preset.name)"
-        >{{ preset.name }}</button>
+    <!-- 预设下拉 + 保存按钮 -->
+    <div class="eq-select-row">
+      <div class="eq-select-wrap">
+        <select class="eq-select" :value="eq.activePresetName" @change="onPresetChange">
+          <optgroup label="内置预设">
+            <option v-for="p in BUILTIN_PRESETS" :key="p.name" :value="p.name">{{ p.name }}</option>
+          </optgroup>
+          <optgroup v-if="eq.customSlots.length" label="自定义">
+            <option v-for="s in eq.customSlots" :key="s.name" :value="s.name">{{ s.name }}</option>
+          </optgroup>
+        </select>
       </div>
+      <button v-if="isCurrentCustom" class="eq-save-btn" @click="showSaveDialog = true">保存</button>
     </div>
 
-    <!-- 自定义槽位 -->
-    <div class="eq-section">
-      <div class="eq-section-label">
-        自定义 ({{ eq.customSlots.length }}/5)
-      </div>
-      <div class="eq-presets">
-        <div v-for="(slot, si) in eq.customSlots" :key="si" class="eq-custom-item">
-          <button
-            class="eq-preset-btn custom"
-            :class="{ active: eq.activePresetName === slot.name }"
-            @click="eq.selectPreset(slot.name)"
-          >
-            <span v-if="editingIndex !== si">{{ slot.name }}</span>
-            <input
-              v-else
-              v-model="editingName"
-              class="eq-rename-input"
-              @keyup.enter="confirmRename(si)"
-              @blur="confirmRename(si)"
-              @click.stop
-              ref="renameInput"
-            />
-          </button>
-          <button class="eq-icon-btn" @click.stop="startRename(si)" title="重命名">
-            <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
-          </button>
-          <button class="eq-icon-btn danger" @click.stop="eq.removeCustomSlot(si)" title="删除">
-            <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
-          </button>
-        </div>
-        <button
-          v-if="eq.customSlots.length < 5"
-          class="eq-preset-btn add-btn"
-          @click="addNewSlot"
-        >+ 新建</button>
-      </div>
+    <!-- 自定义管理区（仅当前是自定义时显示） -->
+    <div v-if="isCurrentCustom" class="eq-custom-bar">
+      <button class="eq-icon-btn" @click="startRename(currentSlotIndex)" title="重命名">
+        <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+      </button>
+      <button class="eq-icon-btn danger" @click="eq.removeCustomSlot(currentSlotIndex)" title="删除此自定义">
+        <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+      </button>
+      <span class="eq-custom-label">{{ eq.activePresetName }}</span>
     </div>
 
     <!-- 频段滑块 -->
     <div class="eq-sliders" :class="{ disabled: !eq.enabled }">
       <div v-for="(freq, i) in EQ_FREQUENCIES" :key="freq" class="eq-slider-col">
-        <span class="eq-slider-value">{{ currentBands[i] > 0 ? '+' : '' }}{{ currentBands[i] }}</span>
-        <div class="eq-slider-track">
+        <span class="eq-db-label">+{{ EQ_MAX }}dB</span>
+        <div class="eq-slider-wrap">
           <input
             type="range"
             :min="EQ_MIN"
@@ -76,7 +51,38 @@
           />
           <div class="eq-slider-center"></div>
         </div>
-        <span class="eq-slider-label">{{ EQ_LABELS[i] }}</span>
+        <span class="eq-db-label">0dB</span>
+        <span class="eq-db-label">-{{ EQ_MAX }}dB</span>
+        <span class="eq-freq-label">{{ EQ_LABELS[i] }}</span>
+      </div>
+    </div>
+
+    <!-- 新建自定义按钮 -->
+    <div class="eq-footer">
+      <button
+        v-if="eq.customSlots.length < 5"
+        class="eq-add-btn"
+        @click="addNewSlot"
+      >+ 新建自定义</button>
+      <span v-else class="eq-full-tip">自定义槽位已满 (5/5)</span>
+    </div>
+
+    <!-- 重命名弹窗 -->
+    <div v-if="editingIndex >= 0" class="eq-dialog-mask" @click="cancelRename">
+      <div class="eq-dialog" @click.stop>
+        <div class="eq-dialog-title">重命名</div>
+        <input
+          v-model="editingName"
+          class="eq-dialog-input"
+          @keyup.enter="confirmRename"
+          @keyup.escape="cancelRename"
+          ref="renameInput"
+          placeholder="输入新名称"
+        />
+        <div class="eq-dialog-btns">
+          <button class="eq-dialog-btn cancel" @click="cancelRename">取消</button>
+          <button class="eq-dialog-btn confirm" @click="confirmRename">确定</button>
+        </div>
       </div>
     </div>
   </div>
@@ -90,14 +96,19 @@ const eq = useEqualizerStore()
 
 const editingIndex = ref(-1)
 const editingName = ref('')
-const renameInput = ref<HTMLInputElement[]>()
+const renameInput = ref<HTMLInputElement>()
+const showSaveDialog = ref(false)
 
 const currentBands = computed(() => eq.getCurrentBands())
 const isCurrentCustom = computed(() => eq.isCustom(eq.activePresetName))
+const currentSlotIndex = computed(() => eq.customSlots.findIndex(s => s.name === eq.activePresetName))
+
+const onPresetChange = (e: Event) => {
+  eq.selectPreset((e.target as HTMLSelectElement).value)
+}
 
 const onBandChange = (bandIndex: number, event: Event) => {
   const val = parseFloat((event.target as HTMLInputElement).value)
-  // 找到当前自定义槽位的索引
   const slotIdx = eq.customSlots.findIndex(s => s.name === eq.activePresetName)
   if (slotIdx >= 0) {
     eq.updateCustomBand(slotIdx, bandIndex, val)
@@ -105,26 +116,28 @@ const onBandChange = (bandIndex: number, event: Event) => {
 }
 
 const startRename = async (index: number) => {
+  if (index < 0) return
   editingIndex.value = index
   editingName.value = eq.customSlots[index].name
   await nextTick()
-  if (renameInput.value && renameInput.value[0]) {
-    renameInput.value[0].focus()
-    renameInput.value[0].select()
-  }
+  renameInput.value?.focus()
+  renameInput.value?.select()
 }
 
-const confirmRename = (index: number) => {
-  if (editingName.value.trim() && editingName.value.trim() !== eq.customSlots[index].name) {
-    eq.renameCustomSlot(index, editingName.value.trim())
+const confirmRename = () => {
+  if (editingIndex.value >= 0 && editingName.value.trim()) {
+    eq.renameCustomSlot(editingIndex.value, editingName.value.trim())
   }
+  editingIndex.value = -1
+}
+
+const cancelRename = () => {
   editingIndex.value = -1
 }
 
 const addNewSlot = () => {
   const num = eq.customSlots.length + 1
   let name = `自定义${num}`
-  // 避免重名
   while (eq.customSlots.some(s => s.name === name)) {
     name = `自定义${num}_${Math.random().toString(36).slice(2, 4)}`
   }
@@ -135,20 +148,22 @@ const addNewSlot = () => {
 
 <style scoped>
 .eq-panel {
-  width: 340px;
-  padding: 16px;
+  width: 100%;
+  padding: 16px 20px;
   user-select: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-.eq-header {
+/* 顶部 */
+.eq-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 14px;
 }
-
 .eq-title {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -187,72 +202,67 @@ const addNewSlot = () => {
   transform: translateX(18px);
 }
 
-/* 区块 */
-.eq-section {
-  margin-bottom: 12px;
-}
-.eq-section-label {
-  font-size: 11px;
-  color: var(--text-secondary);
-  margin-bottom: 6px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-/* 预设按钮组 */
-.eq-presets {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.eq-preset-btn {
-  padding: 4px 10px;
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-  white-space: nowrap;
-  max-width: 120px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.eq-preset-btn:hover {
-  border-color: var(--primary-color);
-}
-.eq-preset-btn.active {
-  background: var(--primary-color);
-  border-color: var(--primary-color);
-  color: #000;
-  font-weight: 600;
-}
-.eq-preset-btn.add-btn {
-  border-style: dashed;
-  color: var(--text-secondary);
-}
-.eq-preset-btn.add-btn:hover {
-  color: var(--primary-color);
-  border-color: var(--primary-color);
-}
-
-/* 自定义槽位 */
-.eq-custom-item {
+/* 下拉选择行 */
+.eq-select-row {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 10px;
+}
+.eq-select-wrap {
+  flex: 1;
+}
+.eq-select {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+  appearance: auto;
+}
+.eq-select:focus {
+  border-color: var(--primary-color);
+}
+.eq-save-btn {
+  padding: 6px 16px;
+  border: 1px solid var(--primary-color);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--primary-color);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+.eq-save-btn:hover {
+  background: var(--primary-color);
+  color: #000;
+}
+
+/* 自定义管理条 */
+.eq-custom-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 0;
+}
+.eq-custom-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-left: 4px;
 }
 
 .eq-icon-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   border: none;
-  border-radius: 3px;
+  border-radius: 4px;
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
@@ -266,25 +276,12 @@ const addNewSlot = () => {
   color: #e74c3c;
 }
 
-.eq-rename-input {
-  width: 80px;
-  padding: 2px 4px;
-  border: 1px solid var(--primary-color);
-  border-radius: 3px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 12px;
-  outline: none;
-}
-
-/* 频段滑块区域 */
+/* 频段滑块 */
 .eq-sliders {
   display: flex;
   justify-content: space-between;
-  gap: 6px;
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border-color);
+  gap: 4px;
+  padding: 8px 0;
   transition: opacity 0.2s;
 }
 .eq-sliders.disabled {
@@ -296,21 +293,21 @@ const addNewSlot = () => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   flex: 1;
 }
 
-.eq-slider-value {
-  font-size: 10px;
+.eq-db-label {
+  font-size: 8px;
   color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
-  min-width: 28px;
-  text-align: center;
+  opacity: 0.6;
+  line-height: 1;
+  min-height: 10px;
 }
 
-.eq-slider-track {
+.eq-slider-wrap {
   position: relative;
-  height: 120px;
+  height: 100px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -321,8 +318,8 @@ const addNewSlot = () => {
   direction: rtl;
   -webkit-appearance: none;
   appearance: none;
-  width: 120px;
-  height: 4px;
+  width: 100px;
+  height: 3px;
   background: var(--bg-secondary);
   border-radius: 2px;
   outline: none;
@@ -332,15 +329,15 @@ const addNewSlot = () => {
 .eq-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   background: var(--primary-color);
   border-radius: 50%;
   cursor: pointer;
 }
 .eq-slider::-moz-range-thumb {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   background: var(--primary-color);
   border-radius: 50%;
   border: none;
@@ -354,12 +351,98 @@ const addNewSlot = () => {
   right: 0;
   height: 1px;
   background: var(--text-secondary);
-  opacity: 0.3;
+  opacity: 0.2;
   pointer-events: none;
 }
 
-.eq-slider-label {
-  font-size: 9px;
+.eq-freq-label {
+  font-size: 10px;
   color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+/* 底部 */
+.eq-footer {
+  display: flex;
+  justify-content: center;
+  padding-top: 4px;
+}
+.eq-add-btn {
+  padding: 4px 14px;
+  border: 1px dashed var(--border-color);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.eq-add-btn:hover {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+.eq-full-tip {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+/* 重命名弹窗 */
+.eq-dialog-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+.eq-dialog {
+  background: var(--card-bg);
+  border-radius: 10px;
+  padding: 20px;
+  width: 280px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+}
+.eq-dialog-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+.eq-dialog-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  margin-bottom: 14px;
+}
+.eq-dialog-input:focus {
+  border-color: var(--primary-color);
+}
+.eq-dialog-btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.eq-dialog-btn {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.eq-dialog-btn.cancel {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+.eq-dialog-btn.confirm {
+  background: var(--primary-color);
+  color: #000;
+  font-weight: 600;
 }
 </style>
