@@ -1,16 +1,16 @@
 services:
   endfield-music:
     build: .
-    image: yinluo/integrated-music-system:latest
-    container_name: endfield-music
+    image: yinluo/integrated-music-system:feature
+    container_name: endfield-music-feature
     ports:
-      - "33550:33550"  # HTTP
-      - "33551:33551"  # HTTPS
+      - "33552:33550"  # HTTP
+      - "33553:33551"  # HTTPS
     volumes:
-      - ./data/config:/data/config
-      - ./data/ssl:/data/ssl
-      - ./data/downloads:/data/downloads
-      - ./data/db:/data/db
+      - ./data-feature/config:/data/config
+      - ./data-feature/ssl:/data/ssl
+      - ./data-feature/downloads:/data/downloads
+      - ./data-feature/db:/data/db
       - /vol1/1000/music:/music
     environment:
       - TZ=Asia/Shanghai
