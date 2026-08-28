@@ -55,8 +55,17 @@ const navigateWithAnimation = async (targetPath: string) => {
     return
   }
 
-  const currentIndex = pageOrder.indexOf(route.path)
-  const targetIndex = pageOrder.indexOf(targetPath)
+  // 匹配基础路径（支持动态路由如 /playlist/2415142956/1 → /playlist）
+  const matchBase = (path: string) => {
+    for (const base of pageOrder) {
+      if (path === base || path.startsWith(base + '/')) return base
+    }
+    return path
+  }
+  const currentBase = matchBase(route.path)
+  const targetBase = matchBase(targetPath)
+  const currentIndex = pageOrder.indexOf(currentBase)
+  const targetIndex = pageOrder.indexOf(targetBase)
 
   if (currentIndex === -1 || targetIndex === -1) {
     await router.push(targetPath)
