@@ -1,30 +1,24 @@
 <template>
   <div class="eq-panel">
-    <!-- 顶部：标题 + 开关 -->
-    <div class="eq-top">
+    <!-- 顶部：标题 + 下拉 + 保存 -->
+    <div class="eq-header">
       <span class="eq-title">均衡器</span>
-      <label class="eq-toggle">
+      <select class="eq-select" :value="eq.activePresetName" @change="onPresetChange">
+        <optgroup label="内置预设">
+          <option v-for="p in BUILTIN_PRESETS" :key="p.name" :value="p.name">{{ p.name }}</option>
+        </optgroup>
+        <optgroup v-if="eq.customSlots.length" label="自定义">
+          <option v-for="s in eq.customSlots" :key="s.name" :value="s.name">{{ s.name }}</option>
+        </optgroup>
+      </select>
+      <button v-if="isCurrentCustom" class="eq-save-btn" @click="showSaveDialog = true">保存</button>
+      <label class="eq-toggle" v-if="isCurrentCustom">
         <input type="checkbox" :checked="eq.enabled" @change="eq.setEnabled(!eq.enabled)" />
         <span class="eq-toggle-slider"></span>
       </label>
     </div>
 
-    <!-- 预设下拉 + 保存按钮 -->
-    <div class="eq-select-row">
-      <div class="eq-select-wrap">
-        <select class="eq-select" :value="eq.activePresetName" @change="onPresetChange">
-          <optgroup label="内置预设">
-            <option v-for="p in BUILTIN_PRESETS" :key="p.name" :value="p.name">{{ p.name }}</option>
-          </optgroup>
-          <optgroup v-if="eq.customSlots.length" label="自定义">
-            <option v-for="s in eq.customSlots" :key="s.name" :value="s.name">{{ s.name }}</option>
-          </optgroup>
-        </select>
-      </div>
-      <button v-if="isCurrentCustom" class="eq-save-btn" @click="showSaveDialog = true">保存</button>
-    </div>
-
-    <!-- 自定义管理区（仅当前是自定义时显示） -->
+    <!-- 自定义管理条 -->
     <div v-if="isCurrentCustom" class="eq-custom-bar">
       <button class="eq-icon-btn" @click="startRename(currentSlotIndex)" title="重命名">
         <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
@@ -35,25 +29,33 @@
       <span class="eq-custom-label">{{ eq.activePresetName }}</span>
     </div>
 
-    <!-- 频段滑块 -->
-    <div class="eq-sliders" :class="{ disabled: !eq.enabled }">
-      <div v-for="(freq, i) in EQ_FREQUENCIES" :key="freq" class="eq-slider-col">
-        <span class="eq-db-label">+{{ EQ_MAX }}dB</span>
-        <div class="eq-slider-wrap">
-          <input
-            type="range"
-            :min="EQ_MIN"
-            :max="EQ_MAX"
-            :value="currentBands[i]"
-            @input="onBandChange(i, $event)"
-            class="eq-slider"
-            :disabled="!eq.enabled || !isCurrentCustom"
-          />
-          <div class="eq-slider-center"></div>
+    <!-- 滑块区域：左侧dB标签 + 滑块列 -->
+    <div class="eq-body" :class="{ disabled: !eq.enabled }">
+      <!-- 左侧dB刻度 -->
+      <div class="eq-db-scale">
+        <span class="eq-db-mark top">+{{ EQ_MAX }}dB</span>
+        <span class="eq-db-mark mid">0dB</span>
+        <span class="eq-db-mark bot">-{{ EQ_MAX }}dB</span>
+      </div>
+
+      <!-- 滑块 -->
+      <div class="eq-sliders">
+        <div v-for="(freq, i) in EQ_FREQUENCIES" :key="freq" class="eq-slider-col">
+          <div class="eq-slider-wrap">
+            <input
+              type="range"
+              :min="EQ_MIN"
+              :max="EQ_MAX"
+              :step="0.5"
+              :value="currentBands[i]"
+              @input="onBandChange(i, $event)"
+              class="eq-slider"
+              :disabled="!eq.enabled || !isCurrentCustom"
+              :style="sliderStyle(currentBands[i])"
+            />
+          </div>
+          <span class="eq-freq-label">{{ EQ_LABELS[i] }}</span>
         </div>
-        <span class="eq-db-label">0dB</span>
-        <span class="eq-db-label">-{{ EQ_MAX }}dB</span>
-        <span class="eq-freq-label">{{ EQ_LABELS[i] }}</span>
       </div>
     </div>
 
@@ -69,7 +71,7 @@
 
     <!-- 重命名弹窗 -->
     <div v-if="editingIndex >= 0" class="eq-dialog-mask" @click="cancelRename">
-      <div class="eq-dialog" @click.stop>
+      <div class="eq-rename-dialog" @click.stop>
         <div class="eq-dialog-title">重命名</div>
         <input
           v-model="editingName"
@@ -115,6 +117,24 @@ const onBandChange = (bandIndex: number, event: Event) => {
   }
 }
 
+// 计算滑块填充样式: 正值从中间向上填充, 负值从中间向下填充
+const sliderStyle = (value: number) => {
+  const range = EQ_MAX - EQ_MIN // 24
+  const pct = ((value - EQ_MIN) / range) * 100 // 0~100, 50=0dB
+  const color = 'var(--primary-color)'
+  if (value >= 0) {
+    // 从50%向上填充到pct%
+    return {
+      background: `linear-gradient(to top, ${color} ${pct}%, transparent ${pct}%, transparent 50%, rgba(255,255,255,0.15) 50%)`
+    }
+  } else {
+    // 从50%向下填充到pct%
+    return {
+      background: `linear-gradient(to bottom, ${color} ${100 - pct}%, transparent ${100 - pct}%, transparent 50%, rgba(255,255,255,0.15) 50%)`
+    }
+  }
+}
+
 const startRename = async (index: number) => {
   if (index < 0) return
   editingIndex.value = index
@@ -149,73 +169,29 @@ const addNewSlot = () => {
 <style scoped>
 .eq-panel {
   width: 100%;
-  padding: 12px 16px;
+  padding: 16px 20px;
   user-select: none;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
 
-/* 顶部 */
-.eq-top {
+/* 顶部一行: 标题 + 下拉 + 保存 + 开关 */
+.eq-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 12px;
 }
 .eq-title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--text-primary);
-}
-
-/* 开关 */
-.eq-toggle {
-  position: relative;
-  display: inline-block;
-  width: 40px;
-  height: 22px;
-  cursor: pointer;
-}
-.eq-toggle input { display: none; }
-.eq-toggle-slider {
-  position: absolute;
-  inset: 0;
-  background: var(--bg-secondary);
-  border-radius: 11px;
-  transition: background 0.2s;
-}
-.eq-toggle-slider::after {
-  content: '';
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 18px;
-  height: 18px;
-  background: #fff;
-  border-radius: 50%;
-  transition: transform 0.2s;
-}
-.eq-toggle input:checked + .eq-toggle-slider {
-  background: var(--primary-color);
-}
-.eq-toggle input:checked + .eq-toggle-slider::after {
-  transform: translateX(18px);
-}
-
-/* 下拉选择行 */
-.eq-select-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.eq-select-wrap {
-  flex: 1;
+  white-space: nowrap;
 }
 .eq-select {
-  width: 100%;
-  padding: 6px 10px;
+  padding: 4px 8px;
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: 4px;
   background: var(--bg-secondary);
   color: var(--text-primary);
   font-size: 13px;
@@ -227,12 +203,12 @@ const addNewSlot = () => {
   border-color: var(--primary-color);
 }
 .eq-save-btn {
-  padding: 6px 16px;
+  padding: 4px 12px;
   border: 1px solid var(--primary-color);
-  border-radius: 6px;
+  border-radius: 4px;
   background: transparent;
   color: var(--primary-color);
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
   white-space: nowrap;
   transition: all 0.15s;
@@ -242,25 +218,59 @@ const addNewSlot = () => {
   color: #000;
 }
 
+/* 开关 */
+.eq-toggle {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  cursor: pointer;
+  margin-left: auto;
+}
+.eq-toggle input { display: none; }
+.eq-toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: var(--bg-secondary);
+  border-radius: 10px;
+  transition: background 0.2s;
+}
+.eq-toggle-slider::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+.eq-toggle input:checked + .eq-toggle-slider {
+  background: var(--primary-color);
+}
+.eq-toggle input:checked + .eq-toggle-slider::after {
+  transform: translateX(16px);
+}
+
 /* 自定义管理条 */
 .eq-custom-bar {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 0;
+  padding: 2px 0;
 }
 .eq-custom-label {
   font-size: 12px;
   color: var(--text-secondary);
   margin-left: 4px;
 }
-
 .eq-icon-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border: none;
   border-radius: 4px;
   background: transparent;
@@ -276,89 +286,113 @@ const addNewSlot = () => {
   color: #e74c3c;
 }
 
-/* 频段滑块 */
-.eq-sliders {
+/* 滑块主体区域 */
+.eq-body {
   display: flex;
-  justify-content: space-between;
-  gap: 0;
-  padding: 4px 16px;
+  gap: 8px;
+  padding: 8px 0;
   transition: opacity 0.2s;
 }
-.eq-sliders.disabled {
+.eq-body.disabled {
   opacity: 0.35;
   pointer-events: none;
+}
+
+/* 左侧dB刻度 */
+.eq-db-scale {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 0 0 20px 0;
+  min-width: 40px;
+}
+.eq-db-mark {
+  font-size: 10px;
+  color: var(--text-secondary);
+  opacity: 0.6;
+  line-height: 1;
+}
+.eq-db-mark.top { text-align: left; }
+.eq-db-mark.mid { text-align: left; }
+.eq-db-mark.bot { text-align: left; }
+
+/* 滑块列容器 */
+.eq-sliders {
+  display: flex;
+  flex: 1;
+  justify-content: space-between;
+  gap: 0;
 }
 
 .eq-slider-col {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
   flex: 1;
-  max-width: 50px;
-}
-
-.eq-db-label {
-  font-size: 7px;
-  color: var(--text-secondary);
-  opacity: 0.5;
-  line-height: 1;
+  gap: 6px;
 }
 
 .eq-slider-wrap {
   position: relative;
-  height: 60px;
+  height: 140px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
+/* 垂直滑块 */
 .eq-slider {
   writing-mode: vertical-lr;
   direction: rtl;
   -webkit-appearance: none;
   appearance: none;
-  width: 60px;
-  height: 3px;
-  background: var(--bg-secondary);
+  width: 4px;
+  height: 140px;
+  background: transparent;
   border-radius: 2px;
   outline: none;
   cursor: pointer;
 }
 
+/* 滑块轨道 */
+.eq-slider::-webkit-slider-runnable-track {
+  width: 4px;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+}
+.eq-slider::-moz-range-track {
+  width: 4px;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+}
+
+/* 滑块thumb - 白色圆形 */
 .eq-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 10px;
-  height: 10px;
-  background: var(--primary-color);
+  width: 14px;
+  height: 14px;
+  background: #fff;
   border-radius: 50%;
   cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  margin-left: -5px;
 }
 .eq-slider::-moz-range-thumb {
-  width: 10px;
-  height: 10px;
-  background: var(--primary-color);
+  width: 14px;
+  height: 14px;
+  background: #fff;
   border-radius: 50%;
   border: none;
   cursor: pointer;
-}
-
-.eq-slider-center {
-  position: absolute;
-  top: 50%;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: var(--text-secondary);
-  opacity: 0.2;
-  pointer-events: none;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 }
 
 .eq-freq-label {
-  font-size: 9px;
+  font-size: 11px;
   color: var(--text-secondary);
-  margin-top: 1px;
 }
 
 /* 底部 */
@@ -396,7 +430,7 @@ const addNewSlot = () => {
   justify-content: center;
   z-index: 9999;
 }
-.eq-dialog {
+.eq-rename-dialog {
   background: var(--card-bg);
   border-radius: 10px;
   padding: 20px;
