@@ -149,11 +149,11 @@ const addNewSlot = () => {
 <style scoped>
 .eq-panel {
   width: 100%;
-  padding: 16px 20px;
+  padding: 12px 16px;
   user-select: none;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
 }
 
 /* 顶部 */
@@ -280,8 +280,8 @@ const addNewSlot = () => {
 .eq-sliders {
   display: flex;
   justify-content: space-between;
-  gap: 4px;
-  padding: 8px 0;
+  gap: 0;
+  padding: 4px 16px;
   transition: opacity 0.2s;
 }
 .eq-sliders.disabled {
@@ -295,19 +295,19 @@ const addNewSlot = () => {
   align-items: center;
   gap: 2px;
   flex: 1;
+  max-width: 50px;
 }
 
 .eq-db-label {
-  font-size: 8px;
+  font-size: 7px;
   color: var(--text-secondary);
-  opacity: 0.6;
+  opacity: 0.5;
   line-height: 1;
-  min-height: 10px;
 }
 
 .eq-slider-wrap {
   position: relative;
-  height: 100px;
+  height: 60px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -318,7 +318,7 @@ const addNewSlot = () => {
   direction: rtl;
   -webkit-appearance: none;
   appearance: none;
-  width: 100px;
+  width: 60px;
   height: 3px;
   background: var(--bg-secondary);
   border-radius: 2px;
@@ -329,15 +329,15 @@ const addNewSlot = () => {
 .eq-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
   background: var(--primary-color);
   border-radius: 50%;
   cursor: pointer;
 }
 .eq-slider::-moz-range-thumb {
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
   background: var(--primary-color);
   border-radius: 50%;
   border: none;
@@ -356,9 +356,9 @@ const addNewSlot = () => {
 }
 
 .eq-freq-label {
-  font-size: 10px;
+  font-size: 9px;
   color: var(--text-secondary);
-  margin-top: 2px;
+  margin-top: 1px;
 }
 
 /* 底部 */
