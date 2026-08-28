@@ -121,8 +121,7 @@ const onBandChange = (bandIndex: number, event: Event) => {
 const sliderStyle = (value: number) => {
   const range = EQ_MAX - EQ_MIN // 24
   const pct = ((value - EQ_MIN) / range) * 100 // 0~100, 50=0dB
-  const mid = 50 // 0dB的位置
-  const color = value >= 0 ? 'var(--primary-color)' : 'var(--primary-color)'
+  const color = 'var(--primary-color)'
   if (value >= 0) {
     // 从50%向上填充到pct%
     return {
