@@ -61,6 +61,11 @@
               <path fill="currentColor" d="M14 10H2v2h12v-2zm0-4H2v2h12V6zm4 8v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zM2 16h8v-2H2v2z"/>
             </svg>
           </button>
+          <button class="control-btn" :class="{ active: eq.enabled }" @click="showEqualizer = !showEqualizer" title="均衡器">
+            <svg viewBox="0 0 24 24" width="20" height="20">
+              <path fill="currentColor" d="M10 20h4V4h-4v16zm-6 0h4v-8H4v8zM16 9v11h4V9h-4z"/>
+            </svg>
+          </button>
         </div>
 
         <!-- 进度条 -->
@@ -127,18 +132,33 @@
         </div>
       </div>
     </div>
+
+    <!-- 均衡器弹窗 -->
+    <div v-if="showEqualizer" class="dialog-overlay" @click="showEqualizer = false">
+      <div class="eq-dialog" @click.stop>
+        <div class="dialog-header">
+          <h3>均衡器</h3>
+          <button class="close-btn" @click="showEqualizer = false">×</button>
+        </div>
+        <Equalizer />
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue'
 import { usePlayerStore } from '../stores/player'
+import { useEqualizerStore } from '../stores/equalizer'
 import { playlistAPI } from '../api'
 import { ElMessage } from 'element-plus'
+import Equalizer from './Equalizer.vue'
 
 const player = usePlayerStore()
+const eq = useEqualizerStore()
 const showPlaylist = ref(false)
 const showAddToPlaylist = ref(false)
+const showEqualizer = ref(false)
 const userPlaylists = ref<any[]>([])
 
 const showPlaylistDialog = () => {
@@ -296,6 +316,10 @@ const onVolumeChange = (event: Event) => {
 
 .control-btn:hover {
   background: var(--bg-secondary);
+  color: var(--primary-color);
+}
+
+.control-btn.active {
   color: var(--primary-color);
 }
 
@@ -516,6 +540,17 @@ const onVolumeChange = (event: Event) => {
   padding: 40px 20px;
   color: var(--text-secondary);
   font-size: 14px;
+}
+
+.eq-dialog {
+  background: var(--card-bg);
+  border-radius: 12px;
+  width: 400px;
+  max-height: 85vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 }
 
 /* 单曲循环图标样式 */
