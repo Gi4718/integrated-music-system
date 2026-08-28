@@ -33,6 +33,7 @@ func getSettings(c *gin.Context) {
 		"download_path":   getSettingByUser(systemUserID, "download_path", ""),
 		"song_format":     getSettingByUser(systemUserID, "song_format", "{songName} - {artist}"),
 		"quality":         getSettingByUser(systemUserID, "quality", "high"),
+		"storage_type":    getSettingByUser(systemUserID, "storage_type", "ssd"),
 		"auto_sync":       getSettingByUser(systemUserID, "auto_sync", "false"),
 		"sync_interval":   getSettingByUser(systemUserID, "sync_interval", "12"),
 		"sync_unit":       getSettingByUser(systemUserID, "sync_unit", "hour"),
@@ -92,7 +93,7 @@ func updateSettings(c *gin.Context) {
 
 	// 用户级别的设置（每个用户独立）
 	userSettings := []string{
-		"download_path", "song_format", "quality", "auto_sync", "sync_interval", "sync_unit",
+		"download_path", "song_format", "quality", "storage_type", "auto_sync", "sync_interval", "sync_unit",
 		"delete_removed", "playlist_format", "resume_downloads", "auto_data_complete",
 		"data_complete_interval", "data_complete_unit", "data_complete_cover",
 		"data_complete_lyrics", "data_complete_artist", "last_sync_time", "next_sync_time",
@@ -122,6 +123,12 @@ func updateSettings(c *gin.Context) {
 		if isUserSetting {
 			if err := db.SetSettingByUser(systemUserID, key, strValue); err != nil {
 				errors = append(errors, fmt.Sprintf("%s: %v", key, err))
+			}
+			// storage_type同时写入全局设置，供引擎读取
+			if key == "storage_type" {
+				if err := db.SetSetting(key, strValue); err != nil {
+					errors = append(errors, fmt.Sprintf("%s(global): %v", key, err))
+				}
 			}
 		} else {
 			// 检查是否是全局设置

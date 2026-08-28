@@ -19,16 +19,19 @@ api.interceptors.request.use(
   }
 )
 
-// 响应拦截器：处理401未授权（仅系统接口401才清除登录状态）
+// 响应拦截器：处理401未授权（所有接口401都清除登录状态并跳转）
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
+      // 避免登录页自身的请求触发重定向
       const url = error.config?.url || ''
-      if (url.startsWith('/system/') || url.startsWith('/auth/')) {
+      if (!url.startsWith('/system/login') && !url.startsWith('/system/register') && !url.startsWith('/system/check')) {
         localStorage.removeItem('system_token')
         localStorage.removeItem('system_username')
-        window.location.href = '/login'
+        if (window.location.pathname !== '/login') {
+          window.location.href = '/login'
+        }
       }
     }
     return Promise.reject(error)

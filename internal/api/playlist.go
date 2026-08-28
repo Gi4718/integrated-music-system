@@ -102,8 +102,11 @@ func addSongToPlaylist(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
 		return
 	}
-
 	cookie, _ := db.GetCookieForSystem(systemUserID)
+	if cookie == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "账号未登录或Cookie已过期"})
+		return
+	}
 	netease := service.NewNeteaseService("http://127.0.0.1:3000")
 	body, err := netease.AddSongToPlaylist(req.PlaylistID, req.SongID, cookie)
 	if err != nil {
@@ -156,9 +159,13 @@ func getPlaylistDetail(c *gin.Context) {
 
 	systemUserID := getSystemUserID(c)
 	cookie, _ := db.GetCookieForSystem(systemUserID)
+	if cookie == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "账号未登录或Cookie已过期"})
+		return
+	}
 	netease := service.NewNeteaseService("http://127.0.0.1:3000")
 
-	// 获取歌单详情（含 trackIds）
+	// 获取歌单详情（用于歌单元数据）
 	body, err := netease.GetPlaylistDetail(playlistID, cookie)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -171,69 +178,31 @@ func getPlaylistDetail(c *gin.Context) {
 		return
 	}
 
-	// 提取 trackIds
-	var allTrackIDs []int
+	// 获取歌单元数据
+	playlistMeta := result["playlist"]
 	total := 0
-	if playlist, ok := result["playlist"].(map[string]interface{}); ok {
+	if playlist, ok := playlistMeta.(map[string]interface{}); ok {
 		if tc, ok := playlist["trackCount"].(float64); ok {
 			total = int(tc)
 		}
-		if trackIDs, ok := playlist["trackIds"].([]interface{}); ok {
-			for _, id := range trackIDs {
-				switch v := id.(type) {
-				case float64:
-					allTrackIDs = append(allTrackIDs, int(v))
-				case map[string]interface{}:
-					if songID, ok := v["id"].(float64); ok {
-						allTrackIDs = append(allTrackIDs, int(songID))
-					}
-				}
-			}
-		}
 	}
 
-	// 用 trackIds 的实际数量作为 total（比 trackCount 更准确）
-	if len(allTrackIDs) > 0 {
-		total = len(allTrackIDs)
-	}
-
-	// 分页截取 trackIds
-	start := offset
-	if start > total {
-		start = total
-	}
-	end := start + limit
-	if end > total {
-		end = total
-	}
-
+	// 使用 /playlist/track/all 直接获取当前页的歌曲（突破1000首限制）
+	// 每次只获取当前页需要的数据，不加载全部
 	tracks := make([]map[string]interface{}, 0)
-	if len(allTrackIDs) > 0 && start < end {
-		pageIDs := allTrackIDs[start:end]
-		// 分批获取歌曲详情（每批最多100首）
-		for i := 0; i < len(pageIDs); i += 100 {
-			batchEnd := i + 100
-			if batchEnd > len(pageIDs) {
-				batchEnd = len(pageIDs)
-			}
-			batchIDs := pageIDs[i:batchEnd]
-			idStrs := make([]string, len(batchIDs))
-			for j, id := range batchIDs {
-				idStrs[j] = strconv.Itoa(id)
-			}
-			idsParam := strings.Join(idStrs, ",")
-
-			songBody, err := netease.GetSongDetailBatch(idsParam)
-			if err != nil {
-				continue
-			}
-			var songResult map[string]interface{}
-			if err := json.Unmarshal(songBody, &songResult); err != nil {
-				continue
+	songBody, err := netease.GetPlaylistTracksAll(playlistID, offset, limit, cookie)
+	if err == nil {
+		var songResult map[string]interface{}
+		if err := json.Unmarshal(songBody, &songResult); err == nil {
+			// 更新total为API返回的准确值
+			if s, ok := songResult["total"].(float64); ok && int(s) > 0 {
+				total = int(s)
 			}
 			if songs, ok := songResult["songs"].([]interface{}); ok {
 				for _, s := range songs {
-					tracks = append(tracks, parseTrack(s.(map[string]interface{})))
+					if m, ok := s.(map[string]interface{}); ok {
+						tracks = append(tracks, parseTrack(m))
+					}
 				}
 			}
 		}
@@ -241,7 +210,7 @@ func getPlaylistDetail(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":  true,
-		"playlist": result["playlist"],
+		"playlist": playlistMeta,
 		"tracks":   tracks,
 		"total":    total,
 		"offset":   offset,
@@ -315,8 +284,11 @@ func subscribePlaylist(c *gin.Context) {
 		return
 	}
 	systemUserID := getSystemUserID(c)
-
 	cookie, _ := db.GetCookieForSystem(systemUserID)
+	if cookie == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "账号未登录或Cookie已过期"})
+		return
+	}
 	netease := service.NewNeteaseService("http://127.0.0.1:3000")
 	body, err := netease.SubscribePlaylist(req.PlaylistID, cookie)
 	if err != nil {

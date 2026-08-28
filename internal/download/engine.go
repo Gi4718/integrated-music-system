@@ -31,11 +31,11 @@ const (
 
 // StorageConfig 存储配置
 type StorageConfig struct {
-	Type            StorageType
-	ScanConcurrency int     // 扫盘并发数
-	DownloadConcurrency int // 下载并发数
-	BufferSize      int     // 下载缓冲区大小（字节）
-	FlushInterval   int     // 数据刷盘间隔（字节）
+	Type                 StorageType
+	ScanConcurrency      int // 扫盘并发数
+	DownloadConcurrency  int // 下载并发数
+	BufferSize           int // 下载缓冲区大小（字节）
+	FlushInterval        int // 数据刷盘间隔（字节）
 }
 
 // Engine 下载引擎
@@ -105,6 +105,8 @@ func NewEngine(netease *service.NeteaseService, taskService *service.TaskService
 
 	// 初始化存储配置
 	engine.storageConfig = engine.detectStorageConfig()
+	// 使用存储配置的并发数覆盖默认值
+	engine.worker = engine.storageConfig.DownloadConcurrency
 	fmt.Printf("[engine] storage config: type=%s, scanConcurrency=%d, downloadConcurrency=%d, bufferSize=%dKB, flushInterval=%dKB\n",
 		engine.storageConfig.Type,
 		engine.storageConfig.ScanConcurrency,
@@ -140,14 +142,14 @@ func (e *Engine) detectStorageConfig() *StorageConfig {
 		// HDD: 减少并发避免磁头抖动，大缓冲区减少IO次数
 		config.ScanConcurrency = 2
 		config.DownloadConcurrency = 2
-		config.BufferSize = 256 * 1024  // 256KB
-		config.FlushInterval = 1024 * 1024 // 1MB
+		config.BufferSize = 256 * 1024       // 256KB
+		config.FlushInterval = 1024 * 1024   // 1MB
 	case StorageSSD:
 		// SSD: 增加并发，适中缓冲区
 		config.ScanConcurrency = 4
 		config.DownloadConcurrency = 4
-		config.BufferSize = 64 * 1024   // 64KB
-		config.FlushInterval = 512 * 1024 // 512KB
+		config.BufferSize = 64 * 1024        // 64KB
+		config.FlushInterval = 512 * 1024    // 512KB
 	default:
 		// 默认配置（SSD）
 		config.ScanConcurrency = 4
@@ -235,6 +237,18 @@ func (e *Engine) recoverIncompleteTasks(ctx context.Context) {
 
 	for _, d := range pending {
 		if d.Phase == "download" && (d.Status == "pending" || d.Status == "downloading") {
+			// 检查断点续传设置，如果禁用则跳过恢复（重新下载）
+			resumeEnabled := true
+			if val, err := db.GetSettingByUser(d.SystemUserID, "resume_downloads"); err == nil && val != "" {
+				resumeEnabled = val == "true"
+			}
+			if !resumeEnabled {
+				db.UpdateDownloadStatus(d.SongID, "pending")
+				db.UpdateDownloadPhase(d.SongID, "download")
+				fmt.Printf("[recover] resume disabled, skipping recovery for %s\n", d.SongName)
+				continue
+			}
+
 			// 重新计算文件路径（DB中FilePath可能为空，因为只在下载完成后才写入）
 			ext := ".mp3"
 			if d.Quality == "lossless" {
@@ -254,9 +268,10 @@ func (e *Engine) recoverIncompleteTasks(ctx context.Context) {
 				}
 			}
 			
-			baseDir := filepath.Join(getDownloadBaseDir(d.SystemUserID), username)
+			downloadBase := getDownloadBaseDir(d.SystemUserID)
+			baseDir := filepath.Join(downloadBase, username)
 			if d.SubDir != "" {
-				baseDir = filepath.Join(getDownloadBaseDir(d.SystemUserID), username, d.SubDir)
+				baseDir = filepath.Join(downloadBase, username, d.SubDir)
 			}
 			computedPath := filepath.Join(baseDir, filename)
 
@@ -336,16 +351,16 @@ func (e *Engine) recoverIncompleteTasks(ctx context.Context) {
 			e.downloadQueue <- task
 			fmt.Printf("[recover] queued download task: %s (songID=%d)\n", d.SongName, d.SongID)
 		} else if d.Phase == "metadata" && !d.MetadataCompleted {
-		// 检查断点续传设置，如果禁用则跳过元数据恢复
-		resumeEnabled := true
-		if val, err := db.GetSettingByUser(d.SystemUserID, "resume_downloads"); err == nil && val != "" {
-			resumeEnabled = val == "true"
-		}
-		if !resumeEnabled {
-			fmt.Printf("[recover] resume disabled, skipping metadata recovery for %s\n", d.SongName)
-			continue
-		}
-		
+			// 检查断点续传设置，如果禁用则跳过元数据恢复
+			resumeEnabled := true
+			if val, err := db.GetSettingByUser(d.SystemUserID, "resume_downloads"); err == nil && val != "" {
+				resumeEnabled = val == "true"
+			}
+			if !resumeEnabled {
+				fmt.Printf("[recover] resume disabled, skipping metadata recovery for %s\n", d.SongName)
+				continue
+			}
+
 			task := &DownloadTask{
 				SongID:     d.SongID,
 				SongName:   d.SongName,
@@ -758,9 +773,10 @@ func (e *Engine) asyncScanAndDownload(playlistID int, playlistName string, track
 		}
 		
 		// 复制文件到目标目录
-		targetDir := filepath.Join(getDownloadBaseDir(systemUserID), username)
+		downloadBase := getDownloadBaseDir(systemUserID)
+		targetDir := filepath.Join(downloadBase, username)
 		if playlistName != "" {
-			targetDir = filepath.Join(getDownloadBaseDir(systemUserID), username, playlistName)
+			targetDir = filepath.Join(downloadBase, username, playlistName)
 		}
 		os.MkdirAll(targetDir, 0755)
 		
@@ -965,9 +981,12 @@ func (e *Engine) scanPlaylistSongs(ctx context.Context, trackIDs []int, quality,
 			username = sanitizeFilename(user.Username)
 		}
 	}
-	targetDir := filepath.Join(getDownloadBaseDir(systemUserID), username)
+
+	// 构建目标目录（用户隔离）
+	downloadBase := getDownloadBaseDir(systemUserID)
+	targetDir := filepath.Join(downloadBase, username)
 	if playlistName != "" {
-		targetDir = filepath.Join(getDownloadBaseDir(systemUserID), username, playlistName)
+		targetDir = filepath.Join(downloadBase, username, playlistName)
 	}
 
 	// 优化1: 批量预加载所有下载记录到内存
@@ -1308,14 +1327,16 @@ func (e *Engine) executeTask(ctx context.Context, task *DownloadTask) {
 		}
 	}
 	
-	baseDir := filepath.Join(getDownloadBaseDir(task.SystemUserID), username)
+	downloadBase := getDownloadBaseDir(task.SystemUserID)
+	baseDir := filepath.Join(downloadBase, username)
 	if task.SubDir != "" {
-		baseDir = filepath.Join(getDownloadBaseDir(task.SystemUserID), username, task.SubDir)
-		if err := os.MkdirAll(baseDir, 0755); err != nil {
-			e.failTask(task, fmt.Sprintf("创建目录失败: %v", err))
-			e.checkPlaylistPhaseComplete(task.PlaylistID)
-			return
-		}
+		baseDir = filepath.Join(downloadBase, username, task.SubDir)
+	}
+	// 确保目录存在（无论是单曲下载还是歌单下载）
+	if err := os.MkdirAll(baseDir, 0755); err != nil {
+		e.failTask(task, fmt.Sprintf("创建目录失败: %v", err))
+		e.checkPlaylistPhaseComplete(task.PlaylistID)
+		return
 	}
 	filePath := filepath.Join(baseDir, filename)
 	task.FilePath = filePath
@@ -1523,9 +1544,9 @@ func (e *Engine) executeMetadataTask(ctx context.Context, task *DownloadTask) {
 		Album:  task.Album,
 	}
 
-	coverEnabled := getSettingBool("data_complete_cover", true)
-	lyricsEnabled := getSettingBool("data_complete_lyrics", true)
-	artistEnabled := getSettingBool("data_complete_artist", true)
+	coverEnabled := getSettingBoolByUser(task.SystemUserID, "data_complete_cover", true)
+	lyricsEnabled := getSettingBoolByUser(task.SystemUserID, "data_complete_lyrics", true)
+	artistEnabled := getSettingBoolByUser(task.SystemUserID, "data_complete_artist", true)
 
 	// 从 DB 获取已完成的步骤（断点续传）
 	history, _ := db.GetDownloadBySongID(task.SongID)
@@ -1690,7 +1711,17 @@ func (e *Engine) checkPlaylistPhaseComplete(playlistID int) {
 		}
 
 		// 检查是否需要数据补全（跟随同步运行，非独立定时）
-		autoComplete := getSettingBool("auto_data_complete", true)
+		// 从任务中获取 systemUserID
+		var autoCompleteSystemUserID int
+		e.mu.RLock()
+		for _, t := range e.tasks {
+			if t.PlaylistID == playlistID && t.SystemUserID > 0 {
+				autoCompleteSystemUserID = t.SystemUserID
+				break
+			}
+		}
+		e.mu.RUnlock()
+		autoComplete := getSettingBoolByUser(autoCompleteSystemUserID, "auto_data_complete", true)
 		if autoComplete && downloadDone > 0 && phase.MetadataTaskID != "" {
 			// 使用预创建的 metadataTask，更新 Total 为实际需要补全的歌曲数
 			e.taskService.UpdateTaskProgress(phase.MetadataTaskID, 0, downloadDone)
@@ -2276,8 +2307,60 @@ func (e *Engine) autoCompleteMetadata() {
 	}
 }
 
+// detectStorageConfig 检测存储配置
+func (e *Engine) detectStorageConfig() *StorageConfig {
+	config := &StorageConfig{}
+
+	// 从数据库读取存储类型设置，默认为SSD
+	storageType, _ := db.GetSetting("storage_type")
+	if storageType == "" {
+		storageType = "ssd" // 默认SSD配置
+	}
+
+	switch StorageType(storageType) {
+	case StorageHDD:
+		config.Type = StorageHDD
+	case StorageSSD:
+		config.Type = StorageSSD
+	default:
+		config.Type = StorageSSD // 默认SSD
+	}
+
+	// 根据存储类型设置并发和缓冲区参数
+	switch config.Type {
+	case StorageHDD:
+		// HDD: 减少并发避免磁头抖动，大缓冲区减少IO次数
+		config.ScanConcurrency = 2
+		config.DownloadConcurrency = 2
+		config.BufferSize = 256 * 1024       // 256KB
+		config.FlushInterval = 1024 * 1024   // 1MB
+	case StorageSSD:
+		// SSD: 增加并发，适中缓冲区
+		config.ScanConcurrency = 4
+		config.DownloadConcurrency = 4
+		config.BufferSize = 64 * 1024        // 64KB
+		config.FlushInterval = 512 * 1024    // 512KB
+	default:
+		config.ScanConcurrency = 4
+		config.DownloadConcurrency = 4
+		config.BufferSize = 64 * 1024
+		config.FlushInterval = 512 * 1024
+	}
+
+	return config
+}
+
 func getSettingBool(key string, defaultVal bool) bool {
-	val, _ := db.GetSetting(key)
+	return getSettingBoolByUser(0, key, defaultVal)
+}
+
+func getSettingBoolByUser(systemUserID int, key string, defaultVal bool) bool {
+	var val string
+	if systemUserID > 0 {
+		val, _ = db.GetSettingByUser(systemUserID, key)
+	} else {
+		val, _ = db.GetSetting(key)
+	}
 	if val == "" {
 		return defaultVal
 	}

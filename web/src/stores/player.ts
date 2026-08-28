@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { playerAPI } from '../api'
 import { ElMessage } from 'element-plus'
+import { useEqualizerStore } from './equalizer'
 
 interface Song {
   id: number
@@ -53,6 +54,10 @@ export const usePlayerStore = defineStore('player', () => {
         ElMessage.error('音频加载失败，可能是版权限制或网络问题')
         isPlaying.value = false
       })
+
+      // 初始化均衡器Web Audio API连接
+      const eq = useEqualizerStore()
+      eq.initAudioContext(audio.value)
     }
 
     currentSong.value = song
