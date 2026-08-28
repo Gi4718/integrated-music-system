@@ -295,7 +295,6 @@ const addNewSlot = () => {
   align-items: center;
   gap: 2px;
   flex: 1;
-  max-width: 50px;
 }
 
 .eq-db-label {
