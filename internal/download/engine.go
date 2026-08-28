@@ -2307,49 +2307,6 @@ func (e *Engine) autoCompleteMetadata() {
 	}
 }
 
-// detectStorageConfig 检测存储配置
-func (e *Engine) detectStorageConfig() *StorageConfig {
-	config := &StorageConfig{}
-
-	// 从数据库读取存储类型设置，默认为SSD
-	storageType, _ := db.GetSetting("storage_type")
-	if storageType == "" {
-		storageType = "ssd" // 默认SSD配置
-	}
-
-	switch StorageType(storageType) {
-	case StorageHDD:
-		config.Type = StorageHDD
-	case StorageSSD:
-		config.Type = StorageSSD
-	default:
-		config.Type = StorageSSD // 默认SSD
-	}
-
-	// 根据存储类型设置并发和缓冲区参数
-	switch config.Type {
-	case StorageHDD:
-		// HDD: 减少并发避免磁头抖动，大缓冲区减少IO次数
-		config.ScanConcurrency = 2
-		config.DownloadConcurrency = 2
-		config.BufferSize = 256 * 1024       // 256KB
-		config.FlushInterval = 1024 * 1024   // 1MB
-	case StorageSSD:
-		// SSD: 增加并发，适中缓冲区
-		config.ScanConcurrency = 4
-		config.DownloadConcurrency = 4
-		config.BufferSize = 64 * 1024        // 64KB
-		config.FlushInterval = 512 * 1024    // 512KB
-	default:
-		config.ScanConcurrency = 4
-		config.DownloadConcurrency = 4
-		config.BufferSize = 64 * 1024
-		config.FlushInterval = 512 * 1024
-	}
-
-	return config
-}
-
 func getSettingBool(key string, defaultVal bool) bool {
 	return getSettingBoolByUser(0, key, defaultVal)
 }
