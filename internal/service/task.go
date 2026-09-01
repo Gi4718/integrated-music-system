@@ -94,6 +94,9 @@ func (s *TaskService) CompleteTask(id string) {
 	if task, ok := s.tasks[id]; ok {
 		task.Status = TaskStatusCompleted
 		task.Progress = 100
+		task.CurrentFile = ""
+		task.CurrentBytes = 0
+		task.TotalBytes = 0
 		task.UpdatedAt = time.Now()
 	}
 }
@@ -105,6 +108,9 @@ func (s *TaskService) FailTask(id string, errMsg string) {
 	if task, ok := s.tasks[id]; ok {
 		task.Status = TaskStatusFailed
 		task.Error = errMsg
+		task.CurrentFile = ""
+		task.CurrentBytes = 0
+		task.TotalBytes = 0
 		task.UpdatedAt = time.Now()
 	}
 }
@@ -173,6 +179,9 @@ func (s *TaskService) CancelTask(id string) bool {
 	if task, ok := s.tasks[id]; ok {
 		if task.Status == TaskStatusPending || task.Status == TaskStatusRunning {
 			task.Status = TaskStatusCancelled
+			task.CurrentFile = ""
+			task.CurrentBytes = 0
+			task.TotalBytes = 0
 			task.UpdatedAt = time.Now()
 			return true
 		}

@@ -45,10 +45,10 @@
             </div>
             <span class="progress-text">{{ task.current }}/{{ task.total }}</span>
           </div>
-          <div v-if="task.current_bytes > 0" class="task-bytes">
+          <div v-if="task.status === 'running' && task.current_bytes > 0" class="task-bytes">
             {{ formatBytes(task.current_bytes) }} / {{ formatBytes(task.total_bytes) }}
           </div>
-          <div v-if="task.current_file" class="task-current-file">{{ task.current_file }}</div>
+          <div v-if="task.status === 'running' && task.current_file" class="task-current-file">{{ task.current_file }}</div>
           <div v-if="task.error" class="task-error">{{ task.error }}</div>
           <div class="task-time">开始时间：{{ formatTime(task.created_at) }}</div>
         </div>

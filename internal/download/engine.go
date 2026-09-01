@@ -818,12 +818,13 @@ func (e *Engine) asyncScanAndDownload(playlistID int, playlistName string, track
 			e.taskService.UpdateTaskProgress(metadataTask.ID, metadataDone, len(trackIDs))
 		}
 		
-		// 如果所有歌曲元数据都已完成，直接完成补全任务
+		// 如果所有歌曲元数据都已完成，直接完成补全任务并标记phase完成
 		if metadataNeeded == 0 {
 			fmt.Printf("[asyncScanAndDownload] all metadata already completed\n")
 			e.taskService.UpdateTaskProgress(metadataTask.ID, len(trackIDs), len(trackIDs))
 			e.taskService.CompleteTask(metadataTask.ID)
 			phase.Phase = "completed"
+			fmt.Printf("[asyncScanAndDownload] phase set to completed for playlistID=%d\n", playlistID)
 		}
 		
 		return
@@ -1596,17 +1597,30 @@ func (e *Engine) checkPlaylistPhaseComplete(playlistID int) {
 	}
 
 	// 元数据阶段完成（包括成功和失败）
-	if phase.Phase == "metadata" && (metadataDone+metadataFailed) >= phase.DownloadDone {
-		phase.MetadataDone = metadataDone
-		if e.taskService != nil {
-			e.taskService.UpdateTaskProgress(phase.MetadataTaskID, metadataDone, phase.DownloadDone)
-			if metadataDone > 0 {
-				e.taskService.CompleteTask(phase.MetadataTaskID)
-			} else {
-				e.taskService.FailTask(phase.MetadataTaskID, "所有元数据补全失败")
+	if phase.Phase == "metadata" {
+		shouldComplete := false
+		if phase.DownloadDone > 0 && (metadataDone+metadataFailed) >= phase.DownloadDone {
+			shouldComplete = true
+		}
+		// 安全机制：如果metadata任务已被其他人完成，也转换phase
+		if !shouldComplete && phase.MetadataTaskID != "" {
+			if metaTask := e.taskService.GetTask(phase.MetadataTaskID); metaTask != nil && metaTask.Status == service.TaskStatusCompleted {
+				shouldComplete = true
 			}
 		}
-		phase.Phase = "completed"
+		if shouldComplete {
+			phase.MetadataDone = metadataDone
+			if e.taskService != nil {
+				e.taskService.UpdateTaskProgress(phase.MetadataTaskID, metadataDone, phase.DownloadDone)
+				if metadataDone > 0 {
+					e.taskService.CompleteTask(phase.MetadataTaskID)
+				} else {
+					e.taskService.FailTask(phase.MetadataTaskID, "所有元数据补全失败")
+				}
+			}
+			phase.Phase = "completed"
+			fmt.Printf("[checkPlaylistPhaseComplete] phase completed for playlistID=%d\n", playlistID)
+		}
 	}
 }
 
@@ -1995,6 +2009,9 @@ func (e *Engine) waitPlaylistTasksComplete(ctx context.Context, playlistIDs []in
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
+	startTime := time.Now()
+	stuckThreshold := 5 * time.Minute // 如果某个phase卡住超过5分钟，强制标记为完成
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -2003,6 +2020,7 @@ func (e *Engine) waitPlaylistTasksComplete(ctx context.Context, playlistIDs []in
 			return
 		case <-ticker.C:
 			completed := 0
+			elapsed := time.Since(startTime)
 			for _, pid := range playlistIDs {
 				e.mu.RLock()
 				phase, exists := e.playlistPhases[pid]
@@ -2014,8 +2032,22 @@ func (e *Engine) waitPlaylistTasksComplete(ctx context.Context, playlistIDs []in
 				}
 				phase.mu.Lock()
 				isActive := phase.Phase == "scanning" || phase.Phase == "downloading" || phase.Phase == "metadata"
+				currentPhase := phase.Phase
 				phase.mu.Unlock()
 				if !isActive {
+					completed++
+				} else if elapsed > stuckThreshold {
+					// 超时强制完成：完成该phase的metadata任务并标记phase完成
+					fmt.Printf("[autoSync] playlist %d stuck in phase %s for %v, force completing\n", pid, currentPhase, elapsed)
+					if phase.MetadataTaskID != "" {
+						e.taskService.CompleteTask(phase.MetadataTaskID)
+					}
+					if phase.DownloadTaskID != "" {
+						e.taskService.CompleteTask(phase.DownloadTaskID)
+					}
+					phase.mu.Lock()
+					phase.Phase = "completed"
+					phase.mu.Unlock()
 					completed++
 				}
 			}
