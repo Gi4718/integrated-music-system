@@ -26,11 +26,11 @@
             <span class="detail-label">进度:</span>
             <span class="detail-value">{{ task.current }} / {{ task.total }} ({{ task.progress }}%)</span>
           </div>
-          <div v-if="task.current_file" class="detail-row">
+          <div v-if="task.status === 'running' && task.current_file" class="detail-row">
             <span class="detail-label">当前文件:</span>
             <span class="detail-value filename">{{ task.current_file }}</span>
           </div>
-          <div v-if="task.current_bytes > 0" class="detail-row">
+          <div v-if="task.status === 'running' && task.current_bytes > 0" class="detail-row">
             <span class="detail-label">已下载:</span>
             <span class="detail-value">{{ formatBytes(task.current_bytes) }} / {{ formatBytes(task.total_bytes) }}</span>
           </div>
