@@ -493,22 +493,25 @@ func (e *Engine) AddTaskWithSubDir(songID int, quality string, subDir string, pl
 func (e *Engine) AddPlaylistTask(playlistID int, quality string, systemUserID int) ([]int, string, string, error) {
 	fmt.Printf("[AddPlaylistTask] starting for playlistID=%d, quality=%s, systemUserID=%d\n", playlistID, quality, systemUserID)
 	
+	fmt.Printf("[AddPlaylistTask] waiting for rate limiter...\n")
 	e.rateLimiter.Wait()
 	fmt.Printf("[AddPlaylistTask] rate limiter passed\n")
 
 	// 重复任务检测：检查是否已有同歌单的活跃任务
+	fmt.Printf("[AddPlaylistTask] checking phase for playlistID=%d\n", playlistID)
 	e.mu.Lock()
 	if phase, ok := e.playlistPhases[playlistID]; ok {
 		phase.mu.Lock()
 		isActive := phase.Phase == "scanning" || phase.Phase == "downloading" || phase.Phase == "metadata"
+		phasePhase := phase.Phase
 		phase.mu.Unlock()
 		if isActive {
 			e.mu.Unlock()
-			fmt.Printf("[AddPlaylistTask] duplicate task detected for playlistID=%d (phase=%s)\n", playlistID, phase.Phase)
+			fmt.Printf("[AddPlaylistTask] duplicate task detected for playlistID=%d (phase=%s)\n", playlistID, phasePhase)
 			return nil, "", "", fmt.Errorf("该歌单已有下载任务正在进行中")
 		}
 		// 旧任务已结束（完成/失败/终止），清理旧 phase 和旧任务，允许重试
-		fmt.Printf("[AddPlaylistTask] cleaning up old phase for playlistID=%d (phase=%s)\n", playlistID, phase.Phase)
+		fmt.Printf("[AddPlaylistTask] cleaning up old phase for playlistID=%d (phase=%s)\n", playlistID, phasePhase)
 		// 取消该歌单的旧任务
 		for _, t := range e.tasks {
 			if t.PlaylistID == playlistID && (t.Status == "pending" || t.Status == "downloading") {
@@ -520,11 +523,13 @@ func (e *Engine) AddPlaylistTask(playlistID int, quality string, systemUserID in
 	e.mu.Unlock()
 
 	cookie, _ := db.GetCookie()
+	fmt.Printf("[AddPlaylistTask] fetching playlist detail for playlistID=%d\n", playlistID)
 	body, err := e.netease.GetPlaylistDetail(playlistID, cookie)
 	if err != nil {
 		fmt.Printf("[AddPlaylistTask] failed to get playlist detail: %v\n", err)
 		return nil, "", "", fmt.Errorf("获取歌单详情失败: %w", err)
 	}
+	fmt.Printf("[AddPlaylistTask] got playlist detail, body len=%d\n", len(body))
 
 	var result map[string]interface{}
 	json.Unmarshal(body, &result)
@@ -1980,11 +1985,13 @@ func (e *Engine) RunAutoSync(ctx context.Context) {
 		totalPlaylists++
 
 		// 触发歌单下载（会自动创建扫描→下载→补全任务）
+		fmt.Printf("[autoSync] calling AddPlaylistTask for %s (id=%d)\n", playlistName, playlistID)
 		_, _, _, err := e.AddPlaylistTask(playlistID, quality, user.SystemUserID)
 		if err != nil {
 			fmt.Printf("[autoSync] failed to sync playlist %s: %v\n", playlistName, err)
 			continue
 		}
+		fmt.Printf("[autoSync] AddPlaylistTask succeeded for %s\n", playlistName)
 		syncedPlaylists++
 		triggeredPlaylistIDs = append(triggeredPlaylistIDs, playlistID)
 	}
