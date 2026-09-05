@@ -1526,8 +1526,10 @@ func (e *Engine) checkPlaylistPhaseComplete(playlistID int) {
 		return
 	}
 
+	// 收集需要推送的元数据任务（在锁外推送，避免死锁）
+	var metadataTasks []*DownloadTask
+
 	phase.mu.Lock()
-	defer phase.mu.Unlock()
 
 	// 统计该歌单的所有任务状态
 	e.mu.RLock()
@@ -1587,12 +1589,12 @@ func (e *Engine) checkPlaylistPhaseComplete(playlistID int) {
 			e.taskService.SetTaskStatus(phase.MetadataTaskID, service.TaskStatusRunning)
 			phase.Phase = "metadata"
 
-			// 将所有成功下载的歌曲放入元数据队列
+			// 收集需要推送的任务（在锁外推送，避免死锁）
 			e.mu.RLock()
 			for _, t := range e.tasks {
 				if t.PlaylistID == playlistID && t.Status == "completed" {
 					t.Phase = "metadata"
-					e.metadataQueue <- t
+					metadataTasks = append(metadataTasks, t)
 				}
 			}
 			e.mu.RUnlock()
@@ -1626,6 +1628,14 @@ func (e *Engine) checkPlaylistPhaseComplete(playlistID int) {
 			phase.Phase = "completed"
 			fmt.Printf("[checkPlaylistPhaseComplete] phase completed for playlistID=%d\n", playlistID)
 		}
+	}
+
+	// 释放锁后再推送任务到通道，避免死锁
+	phase.mu.Unlock()
+
+	// 推送元数据任务到队列（不在锁内）
+	for _, t := range metadataTasks {
+		e.metadataQueue <- t
 	}
 }
 
