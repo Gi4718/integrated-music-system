@@ -2026,9 +2026,6 @@ func (e *Engine) waitPlaylistTasksComplete(ctx context.Context, playlistIDs []in
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
-	startTime := time.Now()
-	stuckThreshold := 5 * time.Minute // 如果某个phase卡住超过5分钟，强制标记为完成
-
 	for {
 		select {
 		case <-ctx.Done():
@@ -2037,7 +2034,6 @@ func (e *Engine) waitPlaylistTasksComplete(ctx context.Context, playlistIDs []in
 			return
 		case <-ticker.C:
 			completed := 0
-			elapsed := time.Since(startTime)
 			for _, pid := range playlistIDs {
 				e.mu.RLock()
 				phase, exists := e.playlistPhases[pid]
@@ -2049,22 +2045,8 @@ func (e *Engine) waitPlaylistTasksComplete(ctx context.Context, playlistIDs []in
 				}
 				phase.mu.Lock()
 				isActive := phase.Phase == "scanning" || phase.Phase == "downloading" || phase.Phase == "metadata"
-				currentPhase := phase.Phase
 				phase.mu.Unlock()
 				if !isActive {
-					completed++
-				} else if elapsed > stuckThreshold {
-					// 超时强制完成：完成该phase的metadata任务并标记phase完成
-					fmt.Printf("[autoSync] playlist %d stuck in phase %s for %v, force completing\n", pid, currentPhase, elapsed)
-					if phase.MetadataTaskID != "" {
-						e.taskService.CompleteTask(phase.MetadataTaskID)
-					}
-					if phase.DownloadTaskID != "" {
-						e.taskService.CompleteTask(phase.DownloadTaskID)
-					}
-					phase.mu.Lock()
-					phase.Phase = "completed"
-					phase.mu.Unlock()
 					completed++
 				}
 			}
