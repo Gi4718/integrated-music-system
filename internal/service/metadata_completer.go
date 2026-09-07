@@ -23,6 +23,7 @@ type MetadataCompleter struct {
 	netease     *NeteaseService
 	rateLimiter *util.RateLimiter
 	retryConfig util.RetryConfig
+	httpClient  *http.Client
 }
 
 // NewMetadataCompleter 创建元数据补全服务
@@ -31,6 +32,9 @@ func NewMetadataCompleter(netease *NeteaseService) *MetadataCompleter {
 		netease:     netease,
 		rateLimiter: util.NewRateLimiter(1 * time.Second),
 		retryConfig: util.DefaultRetryConfig(),
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second,
+		},
 	}
 }
 
@@ -229,7 +233,7 @@ func writeAPICFrame(buf *bytes.Buffer, coverData []byte) {
 func (c *MetadataCompleter) downloadCoverData(url string) ([]byte, error) {
 	c.rateLimiter.Wait()
 
-	resp, err := http.Get(url)
+	resp, err := c.httpClient.Get(url)
 	if err != nil {
 		return nil, err
 	}
@@ -240,7 +244,7 @@ func (c *MetadataCompleter) downloadCoverData(url string) ([]byte, error) {
 		return nil, fmt.Errorf("无效的图片: %w", err)
 	}
 
-	resp2, err := http.Get(url)
+	resp2, err := c.httpClient.Get(url)
 	if err != nil {
 		return nil, err
 	}
