@@ -1587,6 +1587,7 @@ func (e *Engine) checkPlaylistPhaseComplete(playlistID int) {
 			// 使用预创建的 metadataTask，更新 Total 为实际下载成功数
 			e.taskService.UpdateTaskProgress(phase.MetadataTaskID, 0, downloadDone)
 			e.taskService.SetTaskStatus(phase.MetadataTaskID, service.TaskStatusRunning)
+			phase.MetadataDone = 0 // 重置元数据完成计数
 			phase.Phase = "metadata"
 
 			// 收集需要推送的任务（在锁外推送，避免死锁）
