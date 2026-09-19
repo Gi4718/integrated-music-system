@@ -193,6 +193,9 @@ export const taskAPI = {
   },
   clearCompleted() {
     return api.delete('/tasks/completed')
+  },
+  cancelAllTasks() {
+    return api.post('/tasks/cancel-all')
   }
 }
 

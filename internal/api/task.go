@@ -35,6 +35,11 @@ func (h *TaskHandler) CancelTask(c *gin.Context) {
 	}
 }
 
+func (h *TaskHandler) CancelAllTasks(c *gin.Context) {
+	count := h.taskService.CancelAllRunningTasks()
+	c.JSON(http.StatusOK, gin.H{"message": "已终止所有进行中的任务", "count": count})
+}
+
 func (h *TaskHandler) ClearCompletedTasks(c *gin.Context) {
 	count := h.taskService.ClearCompletedTasks()
 	c.JSON(http.StatusOK, gin.H{"message": "已清除已完成任务", "count": count})

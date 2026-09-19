@@ -3,6 +3,9 @@
     <div class="panel-header">
       <h3>任务日志</h3>
       <div class="header-actions">
+        <button class="cancel-all-btn" @click="cancelAllTasks" :disabled="runningCount === 0" title="终止所有进行中的任务">
+          终止全部({{ runningCount }})
+        </button>
         <button class="clear-btn" @click="clearCompleted" :disabled="completedCount === 0" title="清空已完成任务">
           清空已完成({{ completedCount }})
         </button>
@@ -91,6 +94,19 @@ let pollTimer: number | null = null
 const completedCount = computed(() => {
   return tasks.value.filter(t => t.status === 'completed' || t.status === 'failed' || t.status === 'cancelled').length
 })
+
+const runningCount = computed(() => {
+  return tasks.value.filter(t => t.status === 'running' || t.status === 'pending').length
+})
+
+const cancelAllTasks = async () => {
+  try {
+    await taskAPI.cancelAllTasks()
+    await loadTasks()
+  } catch (e) {
+    console.error('终止全部任务失败', e)
+  }
+}
 
 const clearCompleted = async () => {
   try {
@@ -231,6 +247,26 @@ onUnmounted(() => {
 }
 
 .clear-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.cancel-all-btn {
+  background: transparent;
+  color: #f44336;
+  border: 1px solid #f44336;
+  border-radius: 4px;
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.cancel-all-btn:hover:not(:disabled) {
+  background: rgba(244, 67, 54, 0.1);
+}
+
+.cancel-all-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }

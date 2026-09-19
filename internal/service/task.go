@@ -189,6 +189,23 @@ func (s *TaskService) CancelTask(id string) bool {
 	return false
 }
 
+func (s *TaskService) CancelAllRunningTasks() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	count := 0
+	for _, task := range s.tasks {
+		if task.Status == TaskStatusPending || task.Status == TaskStatusRunning {
+			task.Status = TaskStatusCancelled
+			task.CurrentFile = ""
+			task.CurrentBytes = 0
+			task.TotalBytes = 0
+			task.UpdatedAt = time.Now()
+			count++
+		}
+	}
+	return count
+}
+
 func (s *TaskService) ClearCompletedTasks() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()

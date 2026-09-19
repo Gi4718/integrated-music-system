@@ -272,10 +272,23 @@ watch(() => route.params, (newParams) => {
   }
 })
 
-const playAll = () => {
-  if (tracks.value.length > 0) {
-    playerStore.setPlaylist(tracks.value, 0)
-    ElMessage.success('开始播放当前页歌曲')
+const playAll = async () => {
+  if (!selectedPlaylist.value) return
+  try {
+    const res = await playlistAPI.getPlaylistDetail(selectedPlaylist.value.id, 0, totalTracks.value || 9999)
+    const allTracks = res.data.tracks || []
+    if (allTracks.length > 0) {
+      playerStore.setPlaylist(allTracks, 0)
+      ElMessage.success(`开始播放全部 ${allTracks.length} 首歌曲`)
+    } else {
+      ElMessage.warning('歌单内没有歌曲')
+    }
+  } catch (e) {
+    console.error('加载全部歌曲失败:', e)
+    if (tracks.value.length > 0) {
+      playerStore.setPlaylist(tracks.value, 0)
+      ElMessage.success('开始播放当前页歌曲')
+    }
   }
 }
 

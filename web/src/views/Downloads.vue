@@ -9,9 +9,14 @@
     <div class="tasks-section">
       <div class="section-header">
         <h3 class="section-title">任务日志</h3>
-        <button class="clear-btn" @click="clearCompleted" :disabled="completedTasks.length === 0">
-          清空已完成 ({{ completedTasks.length }})
-        </button>
+        <div class="section-actions">
+          <button class="cancel-all-btn" @click="cancelAllTasks" :disabled="runningTasks.length === 0">
+            终止全部 ({{ runningTasks.length }})
+          </button>
+          <button class="clear-btn" @click="clearCompleted" :disabled="completedTasks.length === 0">
+            清空已完成 ({{ completedTasks.length }})
+          </button>
+        </div>
       </div>
       <div v-for="task in tasks" :key="task.id" class="task-card">
         <div class="task-header">
@@ -93,6 +98,20 @@ let pollTimer: number | null = null
 const completedTasks = computed(() => {
   return tasks.value.filter(t => t.status === 'completed' || t.status === 'failed')
 })
+
+const runningTasks = computed(() => {
+  return tasks.value.filter(t => t.status === 'running' || t.status === 'pending')
+})
+
+const cancelAllTasks = async () => {
+  try {
+    const res = await taskAPI.cancelAllTasks()
+    ElMessage.success(res.data.message || '已终止所有任务')
+    await loadTasks()
+  } catch {
+    ElMessage.error('终止任务失败')
+  }
+}
 
 const loadHistory = async () => {
   try {
@@ -220,10 +239,36 @@ onUnmounted(() => {
   margin-bottom: 1rem;
 }
 
+.section-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
 .section-header .section-title {
   margin-bottom: 0;
   padding-bottom: 0;
   border-bottom: none;
+}
+
+.cancel-all-btn {
+  padding: 6px 16px;
+  background: transparent;
+  color: #f44336;
+  border: 1px solid #f44336;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.cancel-all-btn:hover:not(:disabled) {
+  background: rgba(244, 67, 54, 0.1);
+}
+
+.cancel-all-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
 }
 
 .clear-btn {
