@@ -58,6 +58,14 @@ export const usePlayerStore = defineStore('player', () => {
       // 初始化均衡器Web Audio API连接
       const eq = useEqualizerStore()
       eq.initAudioContext(audio.value)
+
+      // 注册 MediaSession 操作处理，改善浏览器后台播放控制
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.setActionHandler('play', () => togglePlay())
+        navigator.mediaSession.setActionHandler('pause', () => togglePlay())
+        navigator.mediaSession.setActionHandler('previoustrack', () => playPrev())
+        navigator.mediaSession.setActionHandler('nexttrack', () => playNext())
+      }
     }
 
     currentSong.value = song
@@ -85,6 +93,16 @@ export const usePlayerStore = defineStore('player', () => {
       })
       await audio.value.play()
       isPlaying.value = true
+
+      // 更新 MediaSession 元数据，改善后台播放体验
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: song.name,
+          artist: song.artist,
+          album: song.album || '',
+          artwork: song.pic_url ? [{ src: song.pic_url, sizes: '512x512', type: 'image/jpeg' }] : []
+        })
+      }
     } catch (error: any) {
       console.error('播放失败:', error)
       ElMessage.error(error?.message || '播放失败，请检查网络或歌曲版权')

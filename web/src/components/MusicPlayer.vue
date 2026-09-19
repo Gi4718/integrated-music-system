@@ -546,6 +546,8 @@ const onVolumeChange = (event: Event) => {
   background: var(--card-bg);
   border-radius: 12px;
   width: 520px;
+  max-height: 85vh;
+  overflow-y: auto;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 }
 
