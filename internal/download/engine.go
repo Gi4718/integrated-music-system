@@ -933,6 +933,15 @@ func (e *Engine) scanPlaylistSongs(ctx context.Context, trackIDs []int, quality,
 	if playlistName != "" {
 		targetDir = filepath.Join(downloadBase, username, playlistName)
 	}
+
+	// 检查是否跳过本地文件扫描
+	skipLocalScan := false
+	if val, err := db.GetSettingByUser(systemUserID, "skip_local_scan"); err == nil {
+		skipLocalScan = val == "true"
+	}
+	if skipLocalScan {
+		fmt.Printf("[scan] skip_local_scan enabled, skipping filesystem checks\n")
+	}
 	
 	// 扫描每首歌曲
 	for i, songID := range trackIDs {
@@ -943,6 +952,12 @@ func (e *Engine) scanPlaylistSongs(ctx context.Context, trackIDs []int, quality,
 		// 先检查数据库是否有下载记录（避免不必要的API调用）
 		history, _ := db.GetDownloadBySongID(songID)
 		if history != nil && history.FilePath != "" {
+			if skipLocalScan {
+				// 跳过扫描本地：信任数据库记录，直接跳过
+				skipped = append(skipped, songID)
+				fmt.Printf("[scan] song already downloaded (db record): %s (songID=%d)\n", history.SongName, songID)
+				continue
+			}
 			// 数据库有记录，检查文件是否存在
 			if _, err := os.Stat(history.FilePath); err == nil {
 				// 文件存在，跳过
@@ -957,11 +972,13 @@ func (e *Engine) scanPlaylistSongs(ctx context.Context, trackIDs []int, quality,
 		}
 		
 		// 检查是否在其他歌单已下载（跨歌单复制）
-		if otherHistory, _ := db.GetAnyDownloadedSong(songID); otherHistory != nil {
-			if _, err := os.Stat(otherHistory.FilePath); err == nil {
-				copied = append(copied, songID)
-				fmt.Printf("[scan] song available in other playlist: %s (songID=%d)\n", otherHistory.SongName, songID)
-				continue
+		if !skipLocalScan {
+			if otherHistory, _ := db.GetAnyDownloadedSong(songID); otherHistory != nil {
+				if _, err := os.Stat(otherHistory.FilePath); err == nil {
+					copied = append(copied, songID)
+					fmt.Printf("[scan] song available in other playlist: %s (songID=%d)\n", otherHistory.SongName, songID)
+					continue
+				}
 			}
 		}
 		
