@@ -37,6 +37,19 @@
         </div>
       </div>
 
+      <div class="setting-row">
+        <div class="setting-label-group">
+          <label class="setting-label">跳过扫描本地</label>
+          <span class="setting-desc">{{ settings.skipLocalScan ? '加速同步，跳过本地文件检查' : '同步时检查本地文件是否存在' }}</span>
+        </div>
+        <div class="setting-control-row">
+          <label class="switch">
+            <input type="checkbox" v-model="settings.skipLocalScan" />
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+
       <div class="section-save-bar">
         <button class="save-btn" @click="saveDownloadSettings" :disabled="savingDownload">
           {{ savingDownload ? '保存中...' : '保存' }}
@@ -516,6 +529,7 @@ const settings = ref({
   quality: 'high' as 'high' | 'lossless',
   storageType: 'ssd' as 'ssd' | 'hdd',
   resumeDownloads: true,
+  skipLocalScan: false,
   autoDataComplete: false,
   dataCompleteInterval: 24,
   dataCompleteUnit: 'hour' as 'hour' | 'day',
@@ -851,6 +865,7 @@ const loadSettings = async () => {
       settings.value.quality = s.quality || 'high'
       settings.value.storageType = s.storage_type || 'ssd'
       settings.value.resumeDownloads = s.resume_downloads !== 'false'
+      settings.value.skipLocalScan = s.skip_local_scan === 'true'
       settings.value.autoDataComplete = s.auto_data_complete === 'true'
       settings.value.dataCompleteInterval = parseInt(s.data_complete_interval) || 24
       settings.value.dataCompleteUnit = s.data_complete_unit === 'day' ? 'day' : 'hour'
@@ -942,7 +957,8 @@ const saveDownloadSettings = async () => {
     const data = {
       download_path: settings.value.downloadPath,
       song_format: settings.value.songFormat,
-      storage_type: settings.value.storageType
+      storage_type: settings.value.storageType,
+      skip_local_scan: settings.value.skipLocalScan.toString()
     }
     await settingsAPI.updateSettings(data)
     downloadSavedTip.value = true
