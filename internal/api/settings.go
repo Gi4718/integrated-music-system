@@ -40,6 +40,7 @@ func getSettings(c *gin.Context) {
 		"delete_removed":  getSettingByUser(systemUserID, "delete_removed", "false"),
 		"playlist_format": getSettingByUser(systemUserID, "playlist_format", "{playlistName}/{songName} - {artist}"),
 		"resume_downloads": getSettingByUser(systemUserID, "resume_downloads", "true"),
+		"skip_local_scan":  getSettingByUser(systemUserID, "skip_local_scan", "false"),
 		"auto_data_complete":      getSettingByUser(systemUserID, "auto_data_complete", "false"),
 		"data_complete_interval":  getSettingByUser(systemUserID, "data_complete_interval", "24"),
 		"data_complete_unit":      getSettingByUser(systemUserID, "data_complete_unit", "hour"),
@@ -94,7 +95,7 @@ func updateSettings(c *gin.Context) {
 	// 用户级别的设置（每个用户独立）
 	userSettings := []string{
 		"download_path", "song_format", "quality", "storage_type", "auto_sync", "sync_interval", "sync_unit",
-		"delete_removed", "playlist_format", "resume_downloads", "auto_data_complete",
+		"delete_removed", "playlist_format", "resume_downloads", "skip_local_scan", "auto_data_complete",
 		"data_complete_interval", "data_complete_unit", "data_complete_cover",
 		"data_complete_lyrics", "data_complete_artist", "last_sync_time", "next_sync_time",
 		"disable_page_animation", "sync_mode", "sync_weekdays", "sync_time",
