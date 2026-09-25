@@ -637,6 +637,12 @@ func (e *Engine) asyncScanAndDownload(playlistID int, playlistName string, track
 	
 	fmt.Printf("[asyncScanAndDownload] scan complete: %d remaining, %d skipped, %d copied\n", remainingCount, skippedCount, copiedCount)
 
+	// 检查扫描是否被取消
+	if e.isTaskCancelled(scanTask.ID) {
+		fmt.Printf("[asyncScanAndDownload] scan task cancelled, aborting\n")
+		return
+	}
+
 	// 检查是否启用"删除已移除歌曲"
 	deleteRemoved := false
 	if val, err := db.GetSettingByUser(systemUserID, "delete_removed"); err == nil {
@@ -945,6 +951,11 @@ func (e *Engine) scanPlaylistSongs(ctx context.Context, trackIDs []int, quality,
 	
 	// 扫描每首歌曲
 	for i, songID := range trackIDs {
+		// 检查任务是否被取消
+		if e.isTaskCancelled(scanTask.ID) {
+			fmt.Printf("[scan] task cancelled, stopping scan\n")
+			break
+		}
 		// 更新扫描进度
 		e.taskService.UpdateTaskProgress(scanTask.ID, i+1, len(trackIDs))
 		e.taskService.UpdateTaskCurrentFile(scanTask.ID, fmt.Sprintf("扫描中... (%d/%d)", i+1, len(trackIDs)), 0, 0)
